@@ -1042,8 +1042,8 @@ def main(email, password):
 
 if __name__ == "__main__":
     start = time.time()
-    email = "info@thebestreputation.com"
-    password = "Ihateflorida2024@"
+    email = "m78077439@gmail.com"
+    password = "g0ldfinch"
     main(email, password)
     end = time.time()
     print("Time Taken: {:.6f}s".format(end - start))

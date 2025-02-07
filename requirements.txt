@@ -1,0 +1,12 @@
+undetected-chromedriver
+selenium
+gspread
+google-api-python-client
+google-auth
+oauth2client
+pandas
+requests
+python-dotenv
+pyperclip
+openpyxl
+selectolax

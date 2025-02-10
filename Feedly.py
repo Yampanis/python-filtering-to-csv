@@ -711,7 +711,7 @@ def scrape_today_articles(driver):
             scroll_down(driver, "//*[@id='feedlyFrame']")
 
             # Check if we reached the bottom
-            new_height1 = driver.execute_script(
+            new_height1 = driver.execute_script( 
                 "return document.querySelector('#feedlyFrame').scrollHeight")
             if new_height1 == new_last_height:
                 break
@@ -719,8 +719,7 @@ def scrape_today_articles(driver):
             counter += 1
             time.sleep(1.5)
 
-        new_articles1 = driver.find_elements(By.CSS_SELECTOR, "entry.magazine")
-
+        new_articles1 = driver.find_elements(By.CLASS_NAME, "entry.magazine")
         for article in new_articles1:
             try:
                 date_span1 = article.find_element(By.CSS_SELECTOR, "span[title*='Published']")
@@ -745,8 +744,8 @@ def scrape_today_articles(driver):
     except Exception as e:
         print('Error execution: ' + str(e))
         pass
-
-    driver.quit()
+    finally:
+        driver.quit()
 
     return new_articles
 

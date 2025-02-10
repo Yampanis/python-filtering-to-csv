@@ -30,6 +30,12 @@ import base64
 load_dotenv()
 OPEN_API_KEY = os.getenv("OPEN_API_KEY")
 
+def infinite_scroll(driver, max_scrolls=5):
+    """Scrolls the page down multiple times to load all content."""
+    for _ in range(max_scrolls):
+        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+        time.sleep(2)  # Wait for content to load
+
 def get_base64_str(source_url):
     try:
         url = urlparse(source_url)
@@ -146,19 +152,19 @@ def decode_google_news_url(source_url, interval=None):
 
 
 try:
-    titles_read_df = pd.read_excel(r'C:\Users\the_b\Desktop\Feedly\titles_to_check.xlsx', sheet_name='Sheet1')
+    titles_read_df = pd.read_excel(r'titles_to_check.xlsx', sheet_name='Sheet1')
     titles_read = titles_read_df['Titles'].tolist()
 except Exception as ex:
     print('Error: ' + str(ex))
     titles_read = []
 try:
-    negative_titles_df = pd.read_excel(r'C:\Users\the_b\Desktop\Feedly\negative_titles.xlsx', sheet_name='Sheet1')
+    negative_titles_df = pd.read_excel(r'negative_titles.xlsx', sheet_name='Sheet1')
     negative_titles_read = negative_titles_df['Titles'].tolist()
 except Exception as ex:
     print('Error negative titles: ' + str(ex))
     negative_titles_read = []
 try:
-    negative_keywords_df = pd.read_excel(r'C:\Users\the_b\Desktop\Feedly\negatives.xlsx', sheet_name='Sheet1')
+    negative_keywords_df = pd.read_excel(r'negatives.xlsx', sheet_name='Sheet1')
     negative_keywords = negative_keywords_df['Negative'].tolist()
 except Exception as ex:
     print('Error negatives: '+ str(ex))
@@ -175,9 +181,14 @@ new_today_str = datetime.datetime.strptime(today_str, "%a, %d %b %Y %H:%M:%S")
 start_range = new_today_str - datetime.timedelta(hours=3)
 # Setup Selenium WebDriver
 chrome_options = Options()
-chrome_options.add_argument("--start-maximized")
+# chrome_options.add_argument("--start-maximized")
+chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+chrome_options.add_experimental_option('useAutomationExtension', False)
+chrome_options.add_argument("--disable-bluetooth") 
+chrome_options.add_argument("--log-level=3")
 # Specify the path to chromedriver using Service
-chromedriver_path = r"C:\Users\the_b\AppData\Local\Programs\Python\Python37\chromedriver.exe"  # Update with the correct path if necessary
+chromedriver_path = r"chromedriver.exe"  # Update with the correct path if necessary
 service = Service(executable_path=chromedriver_path)
 
 # Initialize WebDriver with the service and options
@@ -255,26 +266,35 @@ def feedly_login(driver, email, password):
         time.sleep(3.5)
 
         # Click login button
-        login_button = driver.find_element(
-            By.XPATH, "(//button[contains(.,'Log In')])[1]")
+        login_button = WebDriverWait(driver, 10).until(
+            EC.element_to_be_clickable((By.XPATH, "(//button[contains(.,'Log In')])[1]"))
+        )
         login_button.click()
         time.sleep(2)
 
         # Find Email login option
-        google_login = driver.find_element(By.XPATH, "//a[contains(.,'with Email')]")
+        # google_login = driver.find_element(By.XPATH, "//a[contains(.,'with Google')]")
+        google_login = WebDriverWait(driver, 10).until(
+            EC.element_to_be_clickable((By.XPATH, "//a[contains(.,'with Google')]")
+        ))
         google_login.click()
 
         # Enter email
-        email_input = driver.find_element(By.XPATH, "//input[@type='email']")
+        # email_input = driver.find_element(By.XPATH, "//input[@type='email']")
+        email_input = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.XPATH, "//input[@type='email']"))
+        )
         email_input.send_keys(email)
         email_input.send_keys(Keys.ENTER)
         time.sleep(2)
 
         # Enter password
-        password_input = driver.find_element(By.XPATH, "//input[@type='password']")
+        # password_input = driver.find_element(By.XPATH, "//input[@type='password']")
+        password_input = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.XPATH, "//input[@type='password']"))
+        )
         password_input.send_keys(password)
         password_input.send_keys(Keys.ENTER)
-
         time.sleep(10)
     except Exception as e:
         print(f"Error in feedly_login: {str(e)}")
@@ -655,11 +675,11 @@ def scrape_today_articles(driver):
         time.sleep(1.5)
 
     try:
-        articles = driver.find_elements(By.XPATH, "//article[@class='entry titleOnly']")
+        articles = driver.find_elements(By.CLASS_NAME, "entry.magazine")
         time.sleep(3)
         for article in articles:
             try:
-                date_span = article.find_element(By.XPATH, ".//span[contains(@title,'Published')]")
+                date_span = article.find_element(By.CSS_SELECTOR, "span[title*='Published']")
                 article_date = date_span.get_attribute("title")
                 new_article_date = re.sub(r'\n', '', str(article_date)).strip()
                 new_article_date = re.sub(r'.*Received: | GMT.*', '', new_article_date).strip()
@@ -667,8 +687,8 @@ def scrape_today_articles(driver):
                     new_article_date = new_article_date[:17] + '00' + new_article_date[19:]
                 new_article_date_conv = datetime.datetime.strptime(new_article_date, "%a, %d %b %Y %H:%M:%S")
                 if start_range <= new_article_date_conv <= new_today_str:
-                    title = article.find_element(By.XPATH, ".//a[contains(@class,'EntryTitleLink')]").text
-                    link = article.find_element(By.XPATH, ".//a[contains(@class,'EntryTitleLink')]").get_attribute("href")
+                    title = article.find_element(By.CSS_SELECTOR, "a.EntryTitleLink").text
+                    link = article.find_element(By.CSS_SELECTOR, "a.EntryTitleLink").get_attribute("href")
                     articles_data.append({
                         "Title": title,
                         "URL": link,
@@ -680,7 +700,7 @@ def scrape_today_articles(driver):
                 print('Error for article: ' + str(e))
         time.sleep(1.5)
         driver.get(
-            'https://feedly.com/i/collection/content/user/9e62dc2d-90e6-453b-88f4-47b630b9a4aa/category/global.all'
+            'https://feedly.com/i/collection/content/user/9fa377e1-a6c0-4f6a-8e98-ab3cc30fd0c3/category/global.all'
         )
         time.sleep(10)
         counter = 0
@@ -699,11 +719,11 @@ def scrape_today_articles(driver):
             counter += 1
             time.sleep(1.5)
 
-        new_articles1 = driver.find_elements(By.XPATH, "//article[@class='entry titleOnly']")
+        new_articles1 = driver.find_elements(By.CSS_SELECTOR, "entry.magazine")
 
         for article in new_articles1:
             try:
-                date_span1 = article.find_element(By.XPATH, ".//span[contains(@title,'Published')]")
+                date_span1 = article.find_element(By.CSS_SELECTOR, "span[title*='Published']")
                 article_date1 = date_span1.get_attribute("title")
                 new_article_date1 = re.sub(r'\n', '', str(article_date1)).strip()
                 new_article_date1 = re.sub(r'.*Received: | GMT.*', '', new_article_date1).strip()
@@ -711,8 +731,8 @@ def scrape_today_articles(driver):
                     new_article_date1 = new_article_date1[:17] + '00' + new_article_date1[19:]
                 new_article_date1_conv = datetime.datetime.strptime(new_article_date1, "%a, %d %b %Y %H:%M:%S")
                 if start_range <= new_article_date1_conv <= new_today_str:
-                    title = article.find_element(By.XPATH, ".//a[contains(@class,'EntryTitleLink')]").text
-                    link = article.find_element(By.XPATH, ".//a[contains(@class,'EntryTitleLink')]").get_attribute("href")
+                    title = article.find_element(By.CSS_SELECTOR, "a.EntryTitleLink").text
+                    link = article.find_element(By.CSS_SELECTOR, "a.EntryTitleLink").get_attribute("href")
                     articles_data.append({
                         "Title": title,
                         "URL": link,
@@ -733,7 +753,7 @@ def scrape_today_articles(driver):
 
 def main(email, password):
     # Define headers and empty data
-    if os.path.exists(r"C:\Users\the_b\Desktop\Feedly\Rory Testing Sheet 2024.xlsx"):
+    if os.path.exists(r"Rory Testing Sheet 2024.xlsx"):
         pass
     else:
         headers = ["URL","TITLE","META","REACH OUT NAME","REASON", "KEYWORDS","LOCATION","NOTES"]
@@ -743,8 +763,8 @@ def main(email, password):
         df = pd.DataFrame(data, columns=headers)
 
         # Save to an Excel file
-        df.to_excel(r"C:\Users\the_b\Desktop\Feedly\Rory Testing Sheet 2024.xlsx", index=False, engine="openpyxl")
-        file_path = r"C:\Users\the_b\Desktop\Feedly\Rory Testing Sheet 2024.xlsx"
+        df.to_excel(r"Rory Testing Sheet 2024.xlsx", index=False, engine="openpyxl")
+        file_path = r"Rory Testing Sheet 2024.xlsx"
         workbook = load_workbook(filename=file_path)
 
         # List all sheet names
@@ -843,7 +863,7 @@ def main(email, password):
             options.add_argument("--disable-blink-features=AutomationControlled")
             options.add_argument("--ignore-certificate-errors")
 
-            brw = uc.Chrome(options=options, driver_executable_path=r'C:\Users\the_b\Desktop\Feedly\browser\chromedriver.exe')
+            brw = uc.Chrome(options=options, driver_executable_path=r'chromedriver.exe')
             brw.set_window_size(1370, 780)
             # Navigate to https://chatgpt.com
             brw.get("https://chatgpt.com/")
@@ -1000,7 +1020,7 @@ def main(email, password):
             except Exception as ex:
                 df_titles = pd.DataFrame()
             try:
-                append_to_excel(r'C:\Users\the_b\Desktop\Feedly\titles_to_check.xlsx', df_titles, 'Sheet1')
+                append_to_excel(r'titles_to_check.xlsx', df_titles, 'Sheet1')
             except Exception as ex:
                 print('Error appending data: ' + str(ex))
             try:
@@ -1010,7 +1030,7 @@ def main(email, password):
             except Exception as ex:
                 df_titles_neg = pd.DataFrame()
             try:
-                append_to_excel(r'C:\Users\the_b\Desktop\Feedly\negative_titles.xlsx', df_titles_neg, 'Sheet1')
+                append_to_excel(r'negative_titles.xlsx', df_titles_neg, 'Sheet1')
             except Exception as ex:
                 print('Error appending data: ' + str(ex))
         else:
@@ -1019,7 +1039,7 @@ def main(email, password):
 
         if not df_no_duplicates.empty:
             try:
-                append_to_excel(r"C:\Users\the_b\Desktop\Feedly\Rory Testing Sheet 2024.xlsx",df_no_duplicates,'Sheet1')
+                append_to_excel(r"Rory Testing Sheet 2024.xlsx",df_no_duplicates,'Sheet1')
 ##                params = {'valueInputOption': 'USER_ENTERED'}
 ##                body = {'values': df_no_duplicates.values.tolist()}
 ##                sheet3.values_append('NEW DATA!A' + str(total_titles + 1) + ':G',

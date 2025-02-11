@@ -229,7 +229,7 @@ chrome_options.add_experimental_option('useAutomationExtension', False)
 chrome_options.add_argument("--disable-bluetooth") 
 chrome_options.add_argument("--log-level=3")
 # Specify the path to chromedriver using Service
-chromedriver_path = r"chromedriver.exe"  # Update with the correct path if necessary
+chromedriver_path = os.getenv("CHROMEDRIVER_PATH")  # Update with the correct path if necessary
 service = Service(executable_path=chromedriver_path)
 
 # Initialize WebDriver with the service and options
@@ -889,7 +889,7 @@ def main(email, password):
             options.add_argument("--disable-blink-features=AutomationControlled")
             options.add_argument("--ignore-certificate-errors")
 
-            brw = uc.Chrome(options=options, driver_executable_path=r'chromedriver.exe')
+            brw = uc.Chrome(options=options, driver_executable_path=os.getenv("CHROMEDRIVER_PATH"))
             brw.set_window_size(1370, 780)
             brw.get("https://chatgpt.com/")
             time.sleep(10) 

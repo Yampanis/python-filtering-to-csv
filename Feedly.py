@@ -15,6 +15,8 @@ from oauth2client.service_account import ServiceAccountCredentials
 import pandas as pd
 import requests
 import os
+import pickle
+from selenium.common.exceptions import WebDriverException
 from dotenv import load_dotenv
 import json
 import datetime
@@ -34,7 +36,46 @@ def infinite_scroll(driver, max_scrolls=5):
     """Scrolls the page down multiple times to load all content."""
     for _ in range(max_scrolls):
         driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-        time.sleep(2)  # Wait for content to load
+        time.sleep(2)  
+
+def cleanup_cookies():
+    try:
+        if os.path.exists("cookies"):
+            for file in os.listdir("cookies"):
+                if file.endswith(".pkl"):
+                    os.remove(os.path.join("cookies", file))
+            print("Cleaned up existing cookies")
+    except Exception as e:
+        print(f"Error cleaning cookies: {e}")
+
+def save_cookies(driver, path):
+    """Save cookies to a file"""
+    if not os.path.exists('cookies'):
+        os.makedirs('cookies')
+    with open(path, 'wb') as file:
+        pickle.dump(driver.get_cookies(), file)
+
+def load_cookies(driver, path):
+    try:
+        if os.path.exists(path) and os.path.getsize(path) > 0:
+            with open(path, 'rb') as file:
+                cookies = pickle.load(file)
+                for cookie in cookies:
+                    try:
+                        driver.add_cookie(cookie)
+                    except Exception as e:
+                        print(f"Error adding cookie: {e}")
+                        continue
+            return True
+        return False
+    except (EOFError, pickle.UnpicklingError) as e:
+        print(f"Error loading cookies: {e}")
+        try:
+            os.remove(path)
+            print("Removed corrupted cookie file")
+        except OSError:
+            pass
+        return False
 
 def get_base64_str(source_url):
     try:
@@ -259,53 +300,66 @@ def url_contains_keyword(url, negative_keywords):
             return False
     return True
 
+
 def feedly_login(driver, email, password):
-    # Open Feedly login page
-    try:
-        driver.get("https://feedly.com/i/discover")
-        time.sleep(3.5)
+    cookies_path = "cookies/feedly_cookies.pkl"
+    driver.get("https://feedly.com/i/discover")
+    driver.set_page_load_timeout(30)  
+    
+    time.sleep(3.5)
 
-        # Click login button
-        login_button = WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((By.XPATH, "(//button[contains(.,'Log In')])[1]"))
-        )
-        login_button.click()
-        time.sleep(2)
-
-        # Find Email login option
-        # google_login = driver.find_element(By.XPATH, "//a[contains(.,'with Google')]")
-        google_login = WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((By.XPATH, "//a[contains(.,'with Google')]")
-        ))
-        google_login.click()
-
-        # Enter email
-        # email_input = driver.find_element(By.XPATH, "//input[@type='email']")
-        email_input = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.XPATH, "//input[@type='email']"))
-        )
-        email_input.send_keys(email)
-        email_input.send_keys(Keys.ENTER)
-        time.sleep(2)
-
-        # Enter password
-        # password_input = driver.find_element(By.XPATH, "//input[@type='password']")
-        password_input = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.XPATH, "//input[@type='password']"))
-        )
-        password_input.send_keys(password)
-        password_input.send_keys(Keys.ENTER)
-        time.sleep(10)
+    cookie_login_successful = False
+    try: 
+        if load_cookies(driver, cookies_path):
+            driver.refresh()
+            try:
+                WebDriverWait(driver, 5).until(
+                    EC.presence_of_element_located((By.ID, "feedlyFrame"))
+                )
+                cookie_login_successful = True
+                return True
+            except Exception as e:
+                print(f"Cookie login failed: {e}")
     except Exception as e:
-        print(f"Error in feedly_login: {str(e)}")
-        driver.quit()
+        print(f"Error loading cookies: {e}")
+
+    if not cookie_login_successful:    
+        try:
+            print ("Logging in with Gmail and password")
+            login_button = WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable((By.XPATH, "(//button[contains(.,'Log In')])[1]"))
+            )
+            login_button.click()
+            time.sleep(2)
+
+            google_login = WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable((By.XPATH, "//a[contains(.,'with Google')]")
+            ))
+            google_login.click()
+
+            email_input = WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.XPATH, "//input[@type='email']"))
+            )
+            email_input.send_keys(email)
+            email_input.send_keys(Keys.ENTER)
+            time.sleep(2)
+
+            password_input = WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.XPATH, "//input[@type='password']"))
+            )
+            password_input.send_keys(password)
+            password_input.send_keys(Keys.ENTER)
+            time.sleep(10)
+            # save_cookies(driver, cookies_path)
+        except Exception as e:
+            print(f"Error in feedly_login: {str(e)}")
+            driver.quit()
 
 def login_to_chatgpt_com(driver):
-     # Attempt to find and click a login button if available
     try:
         login_button = WebDriverWait(driver, 10).until(
             EC.visibility_of_element_located((By.XPATH, '//button[@data-testid="login-button"]'))
-        )#driver.find_element(By.XPATH, "//button[@data-testid='login-button']")
+        )
         login_button.click()
         time.sleep(5)
     except:
@@ -327,7 +381,7 @@ def login_to_chatgpt_com(driver):
     try:
         passwd = WebDriverWait(driver, 10).until(
             EC.visibility_of_element_located((By.XPATH, '//input[@id="password"]'))
-        )#driver.find_element(By.XPATH, "//input[@id='password']")
+        )
         passwd.click()
         passwd.send_keys("Barbeque2045!")
         passwd.send_keys(Keys.RETURN)
@@ -700,7 +754,7 @@ def scrape_today_articles(driver):
                 print('Error for article: ' + str(e))
         time.sleep(1.5)
         driver.get(
-            'https://feedly.com/i/collection/content/user/9fa377e1-a6c0-4f6a-8e98-ab3cc30fd0c3/category/global.all'
+            'https://feedly.com/i/collection/content/user/9e62dc2d-90e6-453b-88f4-47b630b9a4aa/category/global.all'
         )
         time.sleep(10)
         counter = 0
@@ -751,11 +805,12 @@ def scrape_today_articles(driver):
 
 
 def main(email, password):
+    # cleanup_cookies()
     # Define headers and empty data
     if os.path.exists(r"Rory Testing Sheet 2024.xlsx"):
         pass
     else:
-        headers = ["URL","TITLE","META","REACH OUT NAME","REASON", "KEYWORDS","LOCATION","NOTES"]
+        headers = ["Url","Title","Description","Reach Out","Reasons", "Keywords","Location","NOTES"]
         data = []
 
         # Create a DataFrame
@@ -765,9 +820,6 @@ def main(email, password):
         df.to_excel(r"Rory Testing Sheet 2024.xlsx", index=False, engine="openpyxl")
         file_path = r"Rory Testing Sheet 2024.xlsx"
         workbook = load_workbook(filename=file_path)
-
-        # List all sheet names
-        ##print("Available Sheets:", workbook.sheetnames)
 
         # Open a specific worksheet by name
         sheet_name = "Sheet1"  # Replace with your desired sheet name
@@ -784,32 +836,16 @@ def main(email, password):
         feedly_login(driver, email, password)
         time.sleep(1.4)  # Give some time to load the page fully
         articles = scrape_today_articles(driver)
-        # Get unique articles with duplicates removed
-        ##        unique_new_articles = [article for article in articles if article[0] not in titles_to_check]
-        # Get titles from the spreadsheet to compare with new articles
-##        try:
-##            titles_to_check = wks3.col_values(2)
-##        except Exception as e:
-##            print('Error for wks3: ' + str(e))
-##            try:
-##                credentials = Credentials.from_service_account_file(r"C:\Users\the_b\Desktop\Feedly\credentials.json")
-##                service = build('sheets', 'v4', credentials=credentials)
-##                spreadsheet_id = '1BC3PSLiK7tWX7N6znah7UiADEBtPS3rq7sePTEpie50'
-##                range_name = 'NEW DATA!B3:B9000'
-##                result = service.spreadsheets().values().get(spreadsheetId=spreadsheet_id, range=range_name).execute()
-##                titles_to_check = [row[0] for row in result.get('values', []) if row]
-##            except Exception as ex:
-##                print('Titles to check arr is empty! Error: ' + str(ex))
-##                titles_to_check =[]# wks3.col_values(2)
         # Print or save scraped data
         print('Total collected articles: ' + str(len(articles)))
         unique_new_articles_neg = [article for article in articles if article[0] not in titles_read]
         print('Total unique articles before negatives check: ' + str(len(unique_new_articles_neg)))
         unique_new_articles = [article for article in unique_new_articles_neg if article[0] not in negative_titles_read]
         print('Total unique articles after negatives check: ' + str(len(unique_new_articles)))
+        total_titles = len(titles_read)
+        print('Total titles read: ' + str(total_titles))
         for article in unique_new_articles:
             try:
-                total_titles = len(titles_read)
                 if article[0] in existing_titles:
                     pass
                 else:
@@ -841,16 +877,7 @@ def main(email, password):
 
         if not openai_api_key:
             raise ValueError("OPENAI_API_KEY not found in .env file")
-
-##        for i in range(len(pg_links_check)):
-##            if check_title_against_keywords(pg_links_check[i], negative_keywords):
-##                pass
-##            else:
-##                pg_links.append(pg_links_check[i])
-##                titles.append(titles_check[i])
-
         
-##        new_pg_links = pg_links[:10]
         print('Total pages to process: ' + str(len(pg_links)))
         print('Total titles to process: ' + str(len(titles)))
         if len(pg_links) > 0:
@@ -864,14 +891,10 @@ def main(email, password):
 
             brw = uc.Chrome(options=options, driver_executable_path=r'chromedriver.exe')
             brw.set_window_size(1370, 780)
-            # Navigate to https://chatgpt.com
             brw.get("https://chatgpt.com/")
-            time.sleep(10)  # Allow page to load
-
-##            login_to_chatgpt_com(brw)
-
-##            time.sleep(5)  # Allow page to load
-
+            time.sleep(10) 
+            login_to_chatgpt_com(brw)
+            time.sleep(5)  # Allow page to load
         
             gpt_links = []
             gpt_titles = []
@@ -1061,8 +1084,8 @@ def main(email, password):
 
 if __name__ == "__main__":
     start = time.time()
-    email = "m78077439@gmail.com"
-    password = "g0ldfinch"
+    email = "m08067064@gmail.com"
+    password = "thebestrep2025"
     main(email, password)
     end = time.time()
     print("Time Taken: {:.6f}s".format(end - start))

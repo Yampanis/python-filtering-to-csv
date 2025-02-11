@@ -1,6 +1,5 @@
-undetected-chromedriver
 selenium
-gspread
+undetected-chromedriver
 google-api-python-client
 google-auth
 oauth2client
@@ -10,3 +9,4 @@ python-dotenv
 pyperclip
 openpyxl
 selectolax
+urllib3

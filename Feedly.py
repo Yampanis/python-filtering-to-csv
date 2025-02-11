@@ -6,28 +6,25 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-import gspread
 import undetected_chromedriver as uc
 from googleapiclient.discovery import build
 from google.oauth2.service_account import Credentials
-##import gspread_dataframe as gd
 from oauth2client.service_account import ServiceAccountCredentials
 import pandas as pd
 import requests
 import os
 import pickle
-from selenium.common.exceptions import WebDriverException
 from dotenv import load_dotenv
 import json
 import datetime
 import pyperclip
 import re
 from openpyxl import load_workbook
+from openpyxl.utils import get_column_letter
 from selectolax.parser import HTMLParser
 from urllib.request import unquote, quote
 from urllib.parse import urlparse
-from html import unescape
-import base64
+import pandas as pd
 
 load_dotenv()
 OPEN_API_KEY = os.getenv("OPEN_API_KEY")
@@ -243,28 +240,76 @@ driver = webdriver.Chrome(service=service, options=chrome_options)
 ##driver = uc.Chrome(options=options, driver_executable_path=r'C:\Users\the_b\Desktop\Feedly\browser\chromedriver.exe', version_main=130)
 
 def append_to_excel(existing_file, new_data, sheet_name):
-    # Read the existing Excel file into a dictionary of DataFrames (one for each sheet)
-    existing_data = pd.read_excel(existing_file, sheet_name=None)
+    """Append data to Excel with formatting"""
+    writer = pd.ExcelWriter(existing_file, engine='xlsxwriter')
+    
+    try:
+        # Read existing data
+        existing_data = pd.read_excel(existing_file, sheet_name=None)
+        if sheet_name in existing_data:
+            # Combine existing and new data
+            combined_data = pd.concat([existing_data[sheet_name], new_data], ignore_index=True)
+        else:
+            combined_data = new_data
+        # Write to Excel with formatting
+        combined_data.to_excel(writer, sheet_name=sheet_name, index=False)
+        # Get workbook and worksheet objects
+        workbook = writer.book
+        worksheet = writer.sheets[sheet_name]
+        # Add formats
+        header_format = workbook.add_format({
+            'bold': True,
+            'text_wrap': True,
+            'valign': 'top',
+            'fg_color': '#D7E4BC',
+            'border': 1
+        })
+        # Write headers with format
+        for col_num, value in enumerate(combined_data.columns.values):
+            worksheet.write(0, col_num, value, header_format)
+        # Auto-fit columns
+        for idx, col in enumerate(combined_data.columns):
+            series = combined_data[col]
+            max_len = max(
+                series.astype(str).apply(len).max(),
+                len(str(series.name))
+            ) + 1
+            worksheet.set_column(idx, idx, max_len)
+            
+    except Exception as e:
+        print(f"Error in append_to_excel: {e}")
+    finally:
+        writer.close()
 
-    # Check if the specified sheet exists in the existing data
-    if sheet_name in existing_data:
-        # Retrieve the existing DataFrame for the specified sheet
-        existing_sheet_data = existing_data[sheet_name]
-
-        # Concatenate the existing DataFrame with the new data
-        combined_data = pd.concat([existing_sheet_data, new_data], ignore_index=True)
-
-        # Update the dictionary with the combined DataFrame for the specified sheet
-        existing_data[sheet_name] = combined_data
-
-        # Write the updated dictionary of DataFrames back to the Excel file
-        with pd.ExcelWriter(existing_file, engine='xlsxwriter') as writer:
-            for sheet, data in existing_data.items():
-                data.to_excel(writer, sheet_name=sheet, index=False)
-    else:
-        # If the specified sheet does not exist, create a new sheet with the new data
-        with pd.ExcelWriter(existing_file, engine='xlsxwriter', mode='a') as writer:
-            new_data.to_excel(writer, sheet_name=sheet_name, index=False)
+def adjust_column_width(workbook_path):
+    """Adjust column widths based on content"""
+    try:
+        # Load the workbook
+        workbook = load_workbook(workbook_path)
+        worksheet = workbook.active
+        
+        # Iterate through columns
+        for column in worksheet.columns:
+            max_length = 0
+            column_letter = column[0].column_letter
+            
+            # Find longest content in column
+            for cell in column:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            
+            # Set width with some padding
+            adjusted_width = (max_length + 2)
+            worksheet.column_dimensions[column_letter].width = adjusted_width
+        
+        # Save the workbook
+        workbook.save(workbook_path)
+        print(f"Adjusted column widths in {workbook_path}")
+    except Exception as e:
+        print(f"Error adjusting column widths: {e}")
 
 # Function to check if a title contains any negative keywords
 def contains_negative_keywords(title, keywords_set):
@@ -712,8 +757,9 @@ def scroll_down(driver, element_selector):
 
 
 def scrape_today_articles(driver):
-    articles_data = []
     new_articles = []
+    batch_size = 500
+
     last_height = driver.execute_script(
         "return document.querySelector('#feedlyFrame').scrollHeight")
     while True:
@@ -743,13 +789,15 @@ def scrape_today_articles(driver):
                 if start_range <= new_article_date_conv <= new_today_str:
                     title = article.find_element(By.CSS_SELECTOR, "a.EntryTitleLink").text
                     link = article.find_element(By.CSS_SELECTOR, "a.EntryTitleLink").get_attribute("href")
-                    articles_data.append({
-                        "Title": title,
-                        "URL": link,
-                        "Date": article_date
-                    })
+                    
+                    if len(new_articles) % batch_size == 0:
+                        driver.execute_script("window.localStorage.clear();")
+                        driver.execute_script("window.sessionStorage.clear();")
+
                     article = (title, link)
-                    new_articles.append(article)
+                    if article not in new_articles:
+                        new_articles.append(article)
+                        
             except Exception as e:
                 print('Error for article: ' + str(e))
         time.sleep(1.5)
@@ -763,7 +811,6 @@ def scrape_today_articles(driver):
         while counter < 10:
             # Scroll down and wait for page load
             scroll_down(driver, "//*[@id='feedlyFrame']")
-
             # Check if we reached the bottom
             new_height1 = driver.execute_script( 
                 "return document.querySelector('#feedlyFrame').scrollHeight")
@@ -786,13 +833,10 @@ def scrape_today_articles(driver):
                 if start_range <= new_article_date1_conv <= new_today_str:
                     title = article.find_element(By.CSS_SELECTOR, "a.EntryTitleLink").text
                     link = article.find_element(By.CSS_SELECTOR, "a.EntryTitleLink").get_attribute("href")
-                    articles_data.append({
-                        "Title": title,
-                        "URL": link,
-                        "Date": article_date1
-                    })
+                    
                     article = (title, link)
-                    new_articles.append(article)
+                    if article not in new_articles:
+                        new_articles.append(article)
             except Exception as e:
                 print('Error for article: ' + str(e))
     except Exception as e:
@@ -805,25 +849,17 @@ def scrape_today_articles(driver):
 
 
 def main(email, password):
-    # cleanup_cookies()
+    df_no_duplicates = pd.DataFrame()
+
     # Define headers and empty data
-    if os.path.exists(r"Rory Testing Sheet 2024.xlsx"):
-        pass
-    else:
+    if not os.path.exists(r"Rory Testing Sheet 2024.xlsx"):
         headers = ["Url","Title","Description","Reach Out","Reasons", "Keywords","Location","NOTES"]
         data = []
-
-        # Create a DataFrame
         df = pd.DataFrame(data, columns=headers)
-
         # Save to an Excel file
         df.to_excel(r"Rory Testing Sheet 2024.xlsx", index=False, engine="openpyxl")
-        file_path = r"Rory Testing Sheet 2024.xlsx"
-        workbook = load_workbook(filename=file_path)
-
-        # Open a specific worksheet by name
-        sheet_name = "Sheet1"  # Replace with your desired sheet name
-        worksheet = workbook[sheet_name]
+        
+        adjust_column_width(r"Rory Testing Sheet 2024.xlsx")
     
     titles_to_check = []
     existing_titles = []
@@ -834,44 +870,60 @@ def main(email, password):
     titles_neg = []
     try:
         feedly_login(driver, email, password)
-        time.sleep(1.4)  # Give some time to load the page fully
+        time.sleep(1.4) 
         articles = scrape_today_articles(driver)
-        # Print or save scraped data
-        print('Total collected articles: ' + str(len(articles)))
-        unique_new_articles_neg = [article for article in articles if article[0] not in titles_read]
-        print('Total unique articles before negatives check: ' + str(len(unique_new_articles_neg)))
-        unique_new_articles = [article for article in unique_new_articles_neg if article[0] not in negative_titles_read]
-        print('Total unique articles after negatives check: ' + str(len(unique_new_articles)))
-        total_titles = len(titles_read)
-        print('Total titles read: ' + str(total_titles))
-        for article in unique_new_articles:
-            try:
-                if article[0] in existing_titles:
-                    pass
-                else:
-                    existing_titles.append(str(article[0]))
-                    if 'news.google' in str(article[1]):
-                        try:
-                            decoded_url = decode_google_news_url(str(article[1]), interval=8)
-                            if decoded_url.get("status"):
-                                if url_contains_keyword(decoded_url["decoded_url"], negative_keywords) or check_title_against_keywords(article[0], negative_keywords):
-                                    titles_neg.append(str(article[0]))
-                                    pass
-                                else:
-                                    pg_links.append(decoded_url["decoded_url"])
-                                    titles.append(str(article[0]))
-                            else:
-                                pg_links.append(str(article[1]))
-                                titles.append(str(article[0]))
-                        except Exception as e:
-                            print('Error trying to convert google news link: ' + str(e))
-                            pg_links.append(str(article[1]))
-                    else:
-                        pg_links.append(str(article[1]))
-                        titles.append(str(article[0]))
-            except Exception as ex:
-                print('Error converting urls: ' + str(ex))
 
+        # Process articles
+        if articles:
+            print('Total collected articles: ' + str(len(articles)))
+            unique_new_articles_neg = [article for article in articles if article[0] not in titles_read]
+            print('Total unique articles before negatives check: ' + str(len(unique_new_articles_neg)))
+            unique_new_articles = [article for article in unique_new_articles_neg if article[0] not in negative_titles_read]
+            print('Total unique articles after negatives check: ' + str(len(unique_new_articles)))
+            total_titles = len(titles_read)
+            print('Total titles read: ' + str(total_titles))
+            for article in unique_new_articles:
+                try:
+                    if article[0] in existing_titles:
+                        pass
+                    else:
+                        existing_titles.append(str(article[0]))
+                        if 'news.google' in str(article[1]):
+                            try:
+                                decoded_url = decode_google_news_url(str(article[1]), interval=8)
+                                if decoded_url.get("status"):
+                                    if url_contains_keyword(decoded_url["decoded_url"], negative_keywords) or check_title_against_keywords(article[0], negative_keywords):
+                                        titles_neg.append(str(article[0]))
+                                        pass
+                                    else:
+                                        pg_links.append(decoded_url["decoded_url"])
+                                        titles.append(str(article[0]))
+                                else:
+                                    pg_links.append(str(article[1]))
+                                    titles.append(str(article[0]))
+                            except Exception as e:
+                                print('Error trying to convert google news link: ' + str(e))
+                                pg_links.append(str(article[1]))
+                        else:
+                            pg_links.append(str(article[1]))
+                            titles.append(str(article[0]))
+                except Exception as ex:
+                    print('Error converting urls: ' + str(ex))
+
+            # Save results with column width adjustment
+            if not df_no_duplicates.empty:
+                append_to_excel(r"Rory Testing Sheet 2024.xlsx", df_no_duplicates, 'Sheet1')
+                adjust_column_width(r"Rory Testing Sheet 2024.xlsx")
+                
+                if not df_titles.empty:
+                    append_to_excel(r'titles_to_check.xlsx', df_titles, 'Sheet1')
+                    adjust_column_width(r'titles_to_check.xlsx')
+                
+                if not df_titles_neg.empty:
+                    append_to_excel(r'negative_titles.xlsx', df_titles_neg, 'Sheet1')
+                    adjust_column_width(r'negative_titles.xlsx')
+
+       
         # Use your OpenAI API key
         openai_api_key = OPEN_API_KEY
 
@@ -883,7 +935,7 @@ def main(email, password):
         if len(pg_links) > 0:
             print('Processing with ChatGPT Response...')
             # Process elements in chunks of 10
-            chunk_size = 10
+            chunk_size = 20
             options = Options()
             options.add_argument("--start-maximized")
             options.add_argument("--disable-blink-features=AutomationControlled")
@@ -1055,24 +1107,16 @@ def main(email, password):
                 append_to_excel(r'negative_titles.xlsx', df_titles_neg, 'Sheet1')
             except Exception as ex:
                 print('Error appending data: ' + str(ex))
+
+            if not df_no_duplicates.empty:
+                try:
+                    append_to_excel(r"Rory Testing Sheet 2024.xlsx",df_no_duplicates,'Sheet1')
+
+                except Exception as e:
+                    print('Error adding to Google Spreadsheet: ' + str(e))
         else:
             print("No new links in articles!")
             df_no_duplicates = pd.DataFrame()
-
-        if not df_no_duplicates.empty:
-            try:
-                append_to_excel(r"Rory Testing Sheet 2024.xlsx",df_no_duplicates,'Sheet1')
-##                params = {'valueInputOption': 'USER_ENTERED'}
-##                body = {'values': df_no_duplicates.values.tolist()}
-##                sheet3.values_append('NEW DATA!A' + str(total_titles + 1) + ':G',
-##                                     params, body)
-                # Close the workbook
-                try:
-                    workbook.close()
-                except Exception as ex:
-                    pass
-            except Exception as e:
-                print('Error adding to Google Spreadsheet: ' + str(e))
 
     finally:
         try:

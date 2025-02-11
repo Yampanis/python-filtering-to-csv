@@ -281,35 +281,35 @@ def append_to_excel(existing_file, new_data, sheet_name):
     finally:
         writer.close()
 
-def adjust_column_width(workbook_path):
-    """Adjust column widths based on content"""
-    try:
-        # Load the workbook
-        workbook = load_workbook(workbook_path)
-        worksheet = workbook.active
+# def adjust_column_width(workbook_path):
+#     """Adjust column widths based on content"""
+#     try:
+#         # Load the workbook
+#         workbook = load_workbook(workbook_path)
+#         worksheet = workbook.active
         
-        # Iterate through columns
-        for column in worksheet.columns:
-            max_length = 0
-            column_letter = column[0].column_letter
+#         # Iterate through columns
+#         for column in worksheet.columns:
+#             max_length = 0
+#             column_letter = column[0].column_letter
             
-            # Find longest content in column
-            for cell in column:
-                try:
-                    if len(str(cell.value)) > max_length:
-                        max_length = len(str(cell.value))
-                except:
-                    pass
+#             # Find longest content in column
+#             for cell in column:
+#                 try:
+#                     if len(str(cell.value)) > max_length:
+#                         max_length = len(str(cell.value))
+#                 except:
+#                     pass
             
-            # Set width with some padding
-            adjusted_width = (max_length + 2)
-            worksheet.column_dimensions[column_letter].width = adjusted_width
+#             # Set width with some padding
+#             adjusted_width = (max_length + 2)
+#             worksheet.column_dimensions[column_letter].width = adjusted_width
         
-        # Save the workbook
-        workbook.save(workbook_path)
-        print(f"Adjusted column widths in {workbook_path}")
-    except Exception as e:
-        print(f"Error adjusting column widths: {e}")
+#         # Save the workbook
+#         workbook.save(workbook_path)
+#         print(f"Adjusted column widths in {workbook_path}")
+#     except Exception as e:
+#         print(f"Error adjusting column widths: {e}")
 
 # Function to check if a title contains any negative keywords
 def contains_negative_keywords(title, keywords_set):
@@ -853,13 +853,13 @@ def main(email, password):
 
     # Define headers and empty data
     if not os.path.exists(r"Rory Testing Sheet 2024.xlsx"):
-        headers = ["Url","Title","Description","Reach Out","Reasons", "Keywords","Location","NOTES"]
+        headers = ["Url","Title","Description","Reach Out","Reasons", "Keywords","Location"]
         data = []
         df = pd.DataFrame(data, columns=headers)
         # Save to an Excel file
         df.to_excel(r"Rory Testing Sheet 2024.xlsx", index=False, engine="openpyxl")
         
-        adjust_column_width(r"Rory Testing Sheet 2024.xlsx")
+        # adjust_column_width(r"Rory Testing Sheet 2024.xlsx")
     
     titles_to_check = []
     existing_titles = []
@@ -910,18 +910,18 @@ def main(email, password):
                 except Exception as ex:
                     print('Error converting urls: ' + str(ex))
 
-            # Save results with column width adjustment
-            if not df_no_duplicates.empty:
-                append_to_excel(r"Rory Testing Sheet 2024.xlsx", df_no_duplicates, 'Sheet1')
-                adjust_column_width(r"Rory Testing Sheet 2024.xlsx")
+            # # Save results with column width adjustment
+            # if not df_no_duplicates.empty:
+            #     append_to_excel(r"Rory Testing Sheet 2024.xlsx", df_no_duplicates, 'Sheet1')
+            #     adjust_column_width(r"Rory Testing Sheet 2024.xlsx")
                 
-                if not df_titles.empty:
-                    append_to_excel(r'titles_to_check.xlsx', df_titles, 'Sheet1')
-                    adjust_column_width(r'titles_to_check.xlsx')
+            #     if not df_titles.empty:
+            #         append_to_excel(r'titles_to_check.xlsx', df_titles, 'Sheet1')
+            #         adjust_column_width(r'titles_to_check.xlsx')
                 
-                if not df_titles_neg.empty:
-                    append_to_excel(r'negative_titles.xlsx', df_titles_neg, 'Sheet1')
-                    adjust_column_width(r'negative_titles.xlsx')
+            #     if not df_titles_neg.empty:
+            #         append_to_excel(r'negative_titles.xlsx', df_titles_neg, 'Sheet1')
+            #         adjust_column_width(r'negative_titles.xlsx')
 
        
         # Use your OpenAI API key

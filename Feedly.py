@@ -601,8 +601,6 @@ def process_articles_batch(unique_new_articles, batch_size=50):
     }
 
 def main(email, password):
-    df_no_duplicates = pd.DataFrame()
-
     # Define headers and empty data
     if not os.path.exists(r"Rory Testing Sheet 2024.xlsx"):
         headers = ["Url","Title","Description","Reach Out","Reasons", "Keywords","Location","NOTES"]

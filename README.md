@@ -6,7 +6,7 @@ This project processes RSS feed data from Feedly, filters articles based on keyw
 
 1. **Clone the Repository**
    ```bash
-   git clone https://github.com/yourusername/python-filtering-to-csv.git
+   git clone https://github.com/Yampanis/python-filtering-to-csv.git
    cd python-filtering-to-csv
    ```
 

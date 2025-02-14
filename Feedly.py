@@ -762,7 +762,7 @@ def scrape_today_articles(driver):
 
     last_height = driver.execute_script(
         "return document.querySelector('#feedlyFrame').scrollHeight")
-    while True:
+    '''while True:
         # Scroll down and wait for page load
         scroll_down(driver, "//*[@id='feedlyFrame']")
 
@@ -772,7 +772,7 @@ def scrape_today_articles(driver):
         if new_height == last_height:
             break
         last_height = new_height
-        time.sleep(1.5)
+        time.sleep(1.5)'''
 
     try:
         articles = driver.find_elements(By.CLASS_NAME, "entry.magazine")
@@ -803,6 +803,9 @@ def scrape_today_articles(driver):
         time.sleep(1.5)
         driver.get(
             'https://feedly.com/i/collection/content/user/9e62dc2d-90e6-453b-88f4-47b630b9a4aa/category/global.all'
+            #'https://feedly.com/i/collection/content/user/9fa377e1-a6c0-4f6a-8e98-ab3cc30fd0c3/category/global.all' #m78077439@gmail.com
+            #'https://feedly.com/i/collection/content/user/9e62dc2d-90e6-453b-88f4-47b630b9a4aa/category/global.all' #m08067064@gmail.com
+            
         )
         time.sleep(10)
         counter = 0
@@ -830,6 +833,7 @@ def scrape_today_articles(driver):
                 if new_article_date1[17:19] == '24':
                     new_article_date1 = new_article_date1[:17] + '00' + new_article_date1[19:]
                 new_article_date1_conv = datetime.datetime.strptime(new_article_date1, "%a, %d %b %Y %H:%M:%S")
+                #if 1 == 1:
                 if start_range <= new_article_date1_conv <= new_today_str:
                     title = article.find_element(By.CSS_SELECTOR, "a.EntryTitleLink").text
                     link = article.find_element(By.CSS_SELECTOR, "a.EntryTitleLink").get_attribute("href")
@@ -882,6 +886,8 @@ def main(email, password):
             print('Total unique articles after negatives check: ' + str(len(unique_new_articles)))
             total_titles = len(titles_read)
             print('Total titles read: ' + str(total_titles))
+
+            decoded_articles = []
             for article in unique_new_articles:
                 try:
                     if article[0] in existing_titles:
@@ -890,8 +896,10 @@ def main(email, password):
                         existing_titles.append(str(article[0]))
                         if 'news.google' in str(article[1]):
                             try:
+                                print("Decoded articles: " + str(decoded_articles))
                                 decoded_url = decode_google_news_url(str(article[1]), interval=8)
                                 if decoded_url.get("status"):
+                                    decoded_articles.append((str(article[0]), decoded_url["decoded_url"]))
                                     if url_contains_keyword(decoded_url["decoded_url"], negative_keywords) or check_title_against_keywords(article[0], negative_keywords):
                                         titles_neg.append(str(article[0]))
                                         pass
@@ -899,6 +907,7 @@ def main(email, password):
                                         pg_links.append(decoded_url["decoded_url"])
                                         titles.append(str(article[0]))
                                 else:
+                                    decoded_articles.append((str(article[0]), str(article[1])))
                                     pg_links.append(str(article[1]))
                                     titles.append(str(article[0]))
                             except Exception as e:
@@ -910,18 +919,28 @@ def main(email, password):
                 except Exception as ex:
                     print('Error converting urls: ' + str(ex))
 
-            # Save results with column width adjustment
-            if not df_no_duplicates.empty:
-                append_to_excel(r"Rory Testing Sheet 2024.xlsx", df_no_duplicates, 'Sheet1')
-                adjust_column_width(r"Rory Testing Sheet 2024.xlsx")
+                            # Write articles to CSV
+            try:
+                articles_df = pd.DataFrame(decoded_articles, columns=['Title', 'URL'])
+                articles_df.to_csv(r'feedly_articles.csv', mode='a', index=False)
+                print(f"Successfully wrote {len(articles)} articles to feedly_articles.csv'")
+            except Exception as e:
+                print(f"Error writing articles to CSV: {str(e)}")
+                    
+            
+
+            # # Save results with column width adjustment
+            # if not df_no_duplicates.empty:
+            #     append_to_excel(r"Rory Testing Sheet 2024.xlsx", df_no_duplicates, 'Sheet1')
+            #     adjust_column_width(r"Rory Testing Sheet 2024.xlsx")
                 
-                if not df_titles.empty:
-                    append_to_excel(r'titles_to_check.xlsx', df_titles, 'Sheet1')
-                    adjust_column_width(r'titles_to_check.xlsx')
+            #     if not df_titles.empty:
+            #         append_to_excel(r'titles_to_check.xlsx', df_titles, 'Sheet1')
+            #         adjust_column_width(r'titles_to_check.xlsx')
                 
-                if not df_titles_neg.empty:
-                    append_to_excel(r'negative_titles.xlsx', df_titles_neg, 'Sheet1')
-                    adjust_column_width(r'negative_titles.xlsx')
+            #     if not df_titles_neg.empty:
+            #         append_to_excel(r'negative_titles.xlsx', df_titles_neg, 'Sheet1')
+            #         adjust_column_width(r'negative_titles.xlsx')
 
        
         # Use your OpenAI API key

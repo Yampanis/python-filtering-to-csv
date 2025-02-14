@@ -10,3 +10,4 @@ pyperclip
 openpyxl
 selectolax
 urllib3
+xlsxwriter

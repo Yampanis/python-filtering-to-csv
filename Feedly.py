@@ -241,45 +241,47 @@ driver = webdriver.Chrome(service=service, options=chrome_options)
 
 def append_to_excel(existing_file, new_data, sheet_name):
     """Append data to Excel with formatting"""
-    writer = pd.ExcelWriter(existing_file, engine='xlsxwriter')
-    
     try:
-        # Read existing data
-        existing_data = pd.read_excel(existing_file, sheet_name=None)
+        # First read existing data with openpyxl engine
+        try:
+            existing_data = pd.read_excel(existing_file, sheet_name=None, engine='openpyxl')
+        except:
+            existing_data = {sheet_name: pd.DataFrame()}
+        
+        # Combine data
         if sheet_name in existing_data:
-            # Combine existing and new data
             combined_data = pd.concat([existing_data[sheet_name], new_data], ignore_index=True)
         else:
             combined_data = new_data
-        # Write to Excel with formatting
-        combined_data.to_excel(writer, sheet_name=sheet_name, index=False)
-        # Get workbook and worksheet objects
-        workbook = writer.book
-        worksheet = writer.sheets[sheet_name]
-        # Add formats
-        header_format = workbook.add_format({
-            'bold': True,
-            'text_wrap': True,
-            'valign': 'top',
-            'fg_color': '#D7E4BC',
-            'border': 1
-        })
-        # Write headers with format
-        for col_num, value in enumerate(combined_data.columns.values):
-            worksheet.write(0, col_num, value, header_format)
-        # Auto-fit columns
-        for idx, col in enumerate(combined_data.columns):
-            series = combined_data[col]
-            max_len = max(
-                series.astype(str).apply(len).max(),
-                len(str(series.name))
-            ) + 1
-            worksheet.set_column(idx, idx, max_len)
             
+        # Write to Excel using openpyxl engine
+        with pd.ExcelWriter(existing_file, engine='openpyxl', mode='w') as writer:
+            combined_data.to_excel(writer, sheet_name=sheet_name, index=False)
+            
+            # Get workbook and worksheet objects
+            workbook = writer.book
+            worksheet = writer.sheets[sheet_name]
+            
+            # Add formats
+            from openpyxl.styles import Font, PatternFill
+            header_font = Font(bold=True)
+            header_fill = PatternFill(start_color='D7E4BC', end_color='D7E4BC', fill_type='solid')
+            
+            for col_num, value in enumerate(combined_data.columns.values):
+                # Set column width
+                max_length = max(
+                    combined_data[value].astype(str).apply(len).max(),
+                    len(str(value))
+                ) + 2
+                worksheet.column_dimensions[get_column_letter(col_num + 1)].width = max_length
+                
+                # Format header using new style
+                cell = worksheet.cell(row=1, column=col_num + 1)
+                cell.font = header_font
+                cell.fill = header_fill
+                
     except Exception as e:
         print(f"Error in append_to_excel: {e}")
-    finally:
-        writer.close()
 
 def adjust_column_width(workbook_path):
     """Adjust column widths based on content"""
@@ -965,214 +967,23 @@ def main(email, password):
                 if results['titles_neg']:
                     df_titles_neg = pd.DataFrame({"Titles": results['titles_neg']})
                     append_to_excel(r'negative_titles.xlsx', df_titles_neg, 'Sheet1')
+
+                excel_data = pd.DataFrame({
+                    "URL": [article[1] for article in results['decoded_articles']],
+                    "Title": [article[0] for article in results['decoded_articles']]
+                })
+
+                append_to_excel(r"Rory Testing Sheet 2024.xlsx", excel_data, 'Sheet1')
+                print(f"Successfully wrote {len(results['decoded_articles'])} articles to Excel")
                     
             except Exception as e:
                 print(f"Error writing to files: {str(e)}")
 
-        # Use your OpenAI API key
-        openai_api_key = OPEN_API_KEY
-
-        if not openai_api_key:
-            raise ValueError("OPENAI_API_KEY not found in .env file")
-        
-        print('Total pages to process: ' + str(len(pg_links)))
-        print('Total titles to process: ' + str(len(titles)))
-        if len(pg_links) > 0:
-            print('Processing with ChatGPT Response...')
-            # Process elements in chunks of 10
-            chunk_size = 20
-            options = Options()
-            options.add_argument("--start-maximized")
-            options.add_argument("--disable-blink-features=AutomationControlled")
-            options.add_argument("--ignore-certificate-errors")
-
-            brw = uc.Chrome(options=options, driver_executable_path=os.getenv("CHROMEDRIVER_PATH"))
-            brw.set_window_size(1370, 780)
-            brw.get("https://chatgpt.com/")
-            time.sleep(10) 
-            login_to_chatgpt_com(brw)
-            time.sleep(5)  # Allow page to load
-        
-            gpt_links = []
-            gpt_titles = []
-            gpt_descs = []
-            gpt_reach = []
-            gpt_reasons = []
-            gpt_keywords = []
-            gpt_loc = []
-            while pg_links:
-                chunk_lnks = pg_links[:chunk_size]
-                chunk_ttls = titles[:chunk_size]
-                prompt_text = ''
-                for i in range(len(chunk_lnks)):
-                    prompt_text += str(chunk_lnks[i]) + '\t' + str(chunk_ttls[i]) + '\n'
-                new_prompt_text = prompt_text.strip()
-
-                try:
-                    modal_cls = brw.find_element(By.XPATH, "//*[contains(@id,'radix-:r')]/div/div/a")
-                    modal_cls.close()
-                    time.sleep(2)
-                except Exception as ex:
-                    pass
-
-                text = f"""
-                    Do that for the following:
-        
-                    {new_prompt_text}
-                """
-
-                # Step 2: Send the text to ChatGPT
-                prompt = f"""PROMPT. BEFORE ANYTHING ELSE, Please Read entirely before performing any response! You must follow this prompt exactly or it will not work. Strictly follow the format with no deviations.
-    
-            Task: 
-            Extract the following information from each article and format it with # separated values so when I get response with my Python script, in each line, I can separate each value by arr.split('#') and process each column value into corresponding lists. Please follow the formatting prompt outlined later in this prompt.
-            
-            Columns Required:
-            Column A: The URL of the article. Examples of the URL which I dont want are:
-            4.        https://www.thailand-business-news.com/thailand-prnews/jolicares-journey-from-steroid-scandal-to-leading-herbal-skincare-brand
-             `https://www.kltv.com/2024/10/30/smith-county-elected-officials-trade-barbs-over-allegations-falsifying-timesheets/
-             1`https://www.tillamookcountypioneer.net/tillamook-school-district-update-investigation-into-allegations-from-friday-football-game/
-             The URL needs to be clean, without any leading number, dots, or quotes.
-             Example of the URL I want:
-             https://cityhub.com.au/gagged-with-a-sex-toy-shocking-details-of-st-pauls-hazing-scandal-emerge/
-            Column B: The title of the article. You may use the title I have provided if available.
-            Column C: A meta description of the article, summarizing it in about 100 - 200 words, with a minimum of 50 words for straightforward articles.
-            Column D: Identify the individual or company (if no specific person has been named) from the article that made a mistake, wrong decision, poor decision, or is the defendant in the situation, even if no formal charges or wrongdoing have been confirmed. Only put the specific name. Only if the article is entirely positive with no controversy, write 'N/A Does Not Apply.'
-            Column E: Start with the specific name of the wrongdoer or entity at fault, followed by an explanation of their role and why they are relevant, even if no formal charges or wrongdoing have been confirmed. Only if the article is entirely positive with no controversy, write 'N/A Does Not Apply.'
-            Column F: Extract only the 20 most important and relevant keywords from the article. Focus on key entities and significant actions, avoiding common words and publication-related information. List exactly 20 keywords, separated by a vertical bar (|), with no spaces, tabs or periods between bars. Example: apple|banana|dragon fruit|kiwi|daves fruit.
-            Column G: Identify where the article takes place. Include the town/city, county/state, and country if mentioned. If any of the information is missing, exclude those specific fields but combine all available information into a single cell. No vertical bar (|) or tabs between word/words.
-            
-            Automated Checklist Instructions:
-            Before submitting any result, check for the presence of data in each column (A to G), especially Column F (keywords). If any column is missing, put 'N/A' as value so it keeps the correct columns order.
-            Column A (URL): Ensure the URL is valid and filled.
-            Column B (Title): Ensure the article title is filled from the article or provided.
-            Column C (Meta Description): Ensure the meta description is between 50-200 words.
-            Column D (Wrongdoer): Ensure the individual or company name is provided (or 'N/A Does Not Apply' if no wrongdoer is involved).
-            Column E (Explanation): Ensure the explanation of the wrongdoer is concise and relevant.
-            Column F (Keywords): Ensure exactly 20 keywords are extracted and properly formatted using the following rules: You cannot skip this step. 
-            No spaces or periods between bars.
-            No apostrophes or commas.
-            No tabs.
-            Use vertical bars to separate keywords (|).
-            Column G (Location): Ensure the location is combined into a single cell with available details without vertical bar(|) or tabs.
-            Important: Make sure that all columns have values. If some column is missing a value or value is an empty string, replace it with 'N/A' 
-            Handling Duplicates, Technical Issues, and Errors:
-            If a URL cannot be accessed due to technical issues, note "Unable to access URL" and proceed to the next URL.
-            If the URL has a formatting issue (such as special characters), note "Formatting issue" and proceed to the next URL.
-            If a duplicate URL is encountered, process it fully as if it were new. You may not skip any URL.
-            Important: If any column is missing or incorrectly filled, it must be flagged and reviewed before moving forward.
-            Final Output:
-            Once all fields are validated against the automated checklist, provide the batch output formatted with # separated values, so when I get response with my Python script, in each line, I can separate each value by arr.split('#') and process each column value into corresponding lists.
-            
-            Batching and Confirmation:
-            Break the URLs into manageable batches of 10 and process them in order.
-            You will ensure you have completed each column before submitting results.
-            Continue processing until all URLs are completed in the same manner.
-            Double-check your work for 100% accuracy before giving the response for each batch.  You will give the data in the correct # separated format with no lines after each row.
-            Strictly follow the format with no deviations. When all URLs are completed, notify me that you are done.
-            IMPORTANT: ALWAYS provide me the batch output in the response each value separated with # sign and make sure to provide batch output inside your code or batch response.
-            Make sure that all columns for each line have correct and corresponding value. If any of values is missing, or you can't find it, replace it with N/A.
-            Make sure that there's 6 values total (one for each column) and 5 hashtags (#) which is separation sign for each column, which is format for getting response for my Python script so I can separate each value by arr.split('#') and process each column value into corresponding lists.
-            Please make sure that you process all URLs from the prompt in your response and not just giving me one and asking to confirm. Just do as I asked in the prompt.
-    
-            {text}
-                """
-                time.sleep(8)
-                try:
-                    gpt_response = ask_chatgpt_com(brw, prompt)#call_chatgpt_api(prompt, openai_api_key)
-
-                    if gpt_response is not None:
-
-                        gpt_json_loaded = json.loads(gpt_response)
-                        
-                        for i in range(len(gpt_json_loaded)):
-                            gpt_links.append(chunk_lnks[i])
-                            gpt_titles.append(chunk_ttls[i])
-                            gpt_descs.append(gpt_json_loaded[i]['description'])
-                            gpt_reach.append(gpt_json_loaded[i]['reach_out'])
-                            gpt_reasons.append(gpt_json_loaded[i]['reasons'])
-                            gpt_keywords.append(gpt_json_loaded[i]['keywords'])
-                            gpt_loc.append(gpt_json_loaded[i]['location'])
-                    else:
-                        pass
-                except Exception as e:
-                    print('Not collected data for this batch! Error: ' + str(e))
-                    pass
-                try:
-                    modal_cls = brw.find_element(By.XPATH, "//*[contains(@id,'radix-:r')]/div/div/a")
-                    modal_cls.close()
-                    time.sleep(2)
-                except Exception as ex:
-                    pass
-##                    for j in range(len(chunk_lnks)):
-##                        gpt_links.append(chunk_lnks[j])
-##                        gpt_titles.append(chunk_ttls[j])
-##                        gpt_descs.append('-')
-##                        gpt_reach.append('-')
-##                        gpt_reasons.append('-')
-##                        gpt_keywords.append('-')
-##                        gpt_loc.append('-')
-
-                # Remove the processed chunk from the list
-                pg_links = pg_links[chunk_size:]
-                titles = titles[chunk_size:]
-            if len(gpt_descs) > 0:
-                df = pd.DataFrame({
-                    "Url": gpt_links,
-                    "Title": gpt_titles,
-                    "Description": gpt_descs,
-                    "Reach Out": gpt_reach,
-                    "Reasons": gpt_reasons,
-                    "Keywords": gpt_keywords,
-                    "Location": gpt_loc
-                })
-
-                df_no_duplicates = df.drop_duplicates(subset=['Title'])
-            else:
-                print("No new links in articles!")
-                df_no_duplicates = pd.DataFrame()
-
-            try:
-                df_titles = pd.DataFrame({
-                    "Titles": gpt_titles
-                })
-            except Exception as ex:
-                df_titles = pd.DataFrame()
-            try:
-                append_to_excel(r'titles_to_check.xlsx', df_titles, 'Sheet1')
-            except Exception as ex:
-                print('Error appending data: ' + str(ex))
-            try:
-                df_titles_neg = pd.DataFrame({
-                    "Titles": titles_neg
-                })
-            except Exception as ex:
-                df_titles_neg = pd.DataFrame()
-            try:
-                append_to_excel(r'negative_titles.xlsx', df_titles_neg, 'Sheet1')
-            except Exception as ex:
-                print('Error appending data: ' + str(ex))
-
-            if not df_no_duplicates.empty:
-                try:
-                    append_to_excel(r"Rory Testing Sheet 2024.xlsx",df_no_duplicates,'Sheet1')
-
-                except Exception as e:
-                    print('Error adding to Google Spreadsheet: ' + str(e))
-        else:
-            print("No new links in articles!")
-            df_no_duplicates = pd.DataFrame()
-
     finally:
-        try:
-            brw.quit()
-            driver.execute_script("window.localStorage.clear();")
-            driver.execute_script("window.sessionStorage.clear();")
-            driver.execute_script("console.clear();")
-        except Exception as e:
-            pass
-        print('Completed!')
-
+        driver.quit()
+        driver.execute_script("window.localStorage.clear();")
+        driver.execute_script("window.sessionStorage.clear();")
+        driver.execute_script("console.clear();")
 
 if __name__ == "__main__":
     start = time.time()

@@ -395,6 +395,7 @@ def feedly_login(driver, email, password):
             password_input.send_keys(password)
             password_input.send_keys(Keys.ENTER)
             time.sleep(10)
+            print("Logged in successfully!!!")
             # save_cookies(driver, cookies_path)
         except Exception as e:
             print(f"Error in feedly_login: {str(e)}")
@@ -759,7 +760,6 @@ def scroll_down(driver, element_selector):
 def scrape_today_articles(driver):
     new_articles = []
     batch_size = 500
-
     last_height = driver.execute_script(
         "return document.querySelector('#feedlyFrame').scrollHeight")
     '''while True:
@@ -811,7 +811,7 @@ def scrape_today_articles(driver):
         counter = 0
         new_last_height = driver.execute_script(
             "return document.querySelector('#feedlyFrame').scrollHeight")
-        while counter < 10:
+        while counter < 30:
             # Scroll down and wait for page load
             scroll_down(driver, "//*[@id='feedlyFrame']")
             # Check if we reached the bottom
@@ -843,6 +843,8 @@ def scrape_today_articles(driver):
                         new_articles.append(article)
             except Exception as e:
                 print('Error for article: ' + str(e))
+        
+        print("Debugger!!!")
     except Exception as e:
         print('Error execution: ' + str(e))
         pass
@@ -851,6 +853,57 @@ def scrape_today_articles(driver):
 
     return new_articles
 
+def process_articles_batch(unique_new_articles, batch_size=50):
+    decoded_articles = []
+    titles = []
+    titles_neg = []
+    pg_links = []
+    existing_titles = set()
+
+    for i in range(0, len(unique_new_articles), batch_size):
+        batch = unique_new_articles[i:i + batch_size]
+
+        for article in batch:
+            title, url = str(article[0]), str(article[1])
+            if title in existing_titles:
+                continue
+            existing_titles.add(title)
+
+            if 'news.google' in url:
+                try:
+                    decoded_url = decode_google_news_url(url, interval=0.1)
+
+                    if decoded_url.get("status"):
+                        final_url = decoded_url["decoded_url"]
+                        print("Decoded url: ", final_url)
+                        decoded_articles.append((title, final_url))
+                        
+                        # Batch keyword checking
+                        if (url_contains_keyword(final_url, negative_keywords) or 
+                            check_title_against_keywords(title, negative_keywords)):
+                            titles_neg.append(title)
+                        else:
+                            pg_links.append(final_url)
+                            titles.append(title)
+                    else:
+                        decoded_articles.append((title, url))
+                        pg_links.append(url)
+                        titles.append(title)
+                    
+                except Exception as e:
+                    print('Error trying to convert google news link: ' + str(e))
+                    pg_links.append(url)
+                    titles.append(title)
+            else:
+                pg_links.append(url)
+                titles.append(title)
+            
+    return {
+        'decoded_articles': decoded_articles,
+        'titles': titles,
+        'pg_links': pg_links,
+        'titles_neg': titles_neg
+    }
 
 def main(email, password):
     df_no_duplicates = pd.DataFrame()
@@ -887,62 +940,35 @@ def main(email, password):
             total_titles = len(titles_read)
             print('Total titles read: ' + str(total_titles))
 
-            decoded_articles = []
-            for article in unique_new_articles:
-                try:
-                    if article[0] in existing_titles:
-                        pass
-                    else:
-                        existing_titles.append(str(article[0]))
-                        if 'news.google' in str(article[1]):
-                            try:
-                                print("Decoded articles: " + str(decoded_articles))
-                                decoded_url = decode_google_news_url(str(article[1]), interval=8)
-                                if decoded_url.get("status"):
-                                    decoded_articles.append((str(article[0]), decoded_url["decoded_url"]))
-                                    if url_contains_keyword(decoded_url["decoded_url"], negative_keywords) or check_title_against_keywords(article[0], negative_keywords):
-                                        titles_neg.append(str(article[0]))
-                                        pass
-                                    else:
-                                        pg_links.append(decoded_url["decoded_url"])
-                                        titles.append(str(article[0]))
-                                else:
-                                    decoded_articles.append((str(article[0]), str(article[1])))
-                                    pg_links.append(str(article[1]))
-                                    titles.append(str(article[0]))
-                            except Exception as e:
-                                print('Error trying to convert google news link: ' + str(e))
-                                pg_links.append(str(article[1]))
-                        else:
-                            pg_links.append(str(article[1]))
-                            titles.append(str(article[0]))
-                except Exception as ex:
-                    print('Error converting urls: ' + str(ex))
+            titles_read_set = set(titles_read)
+            negative_titles_set = set(negative_titles_read)
 
-                            # Write articles to CSV
+            # Filter articles in one pass
+            unique_new_articles = [
+                article for article in articles 
+                if article[0] not in titles_read_set and article[0] not in negative_titles_set
+            ]
+
+            results = process_articles_batch(unique_new_articles)
+
+            # Write to CSV immediately after processing
             try:
-                articles_df = pd.DataFrame(decoded_articles, columns=['Title', 'URL'])
+                articles_df = pd.DataFrame(results['decoded_articles'], columns=['Title', 'URL'])
                 articles_df.to_csv(r'feedly_articles.csv', mode='a', index=False)
-                print(f"Successfully wrote {len(articles)} articles to feedly_articles.csv'")
-            except Exception as e:
-                print(f"Error writing articles to CSV: {str(e)}")
+                print(f"Successfully wrote {len(results['decoded_articles'])} articles")
+                
+                # Create DataFrames for titles
+                if results['titles']:
+                    df_titles = pd.DataFrame({"Titles": results['titles']})
+                    append_to_excel(r'titles_to_check.xlsx', df_titles, 'Sheet1')
                     
-            
+                if results['titles_neg']:
+                    df_titles_neg = pd.DataFrame({"Titles": results['titles_neg']})
+                    append_to_excel(r'negative_titles.xlsx', df_titles_neg, 'Sheet1')
+                    
+            except Exception as e:
+                print(f"Error writing to files: {str(e)}")
 
-            # # Save results with column width adjustment
-            # if not df_no_duplicates.empty:
-            #     append_to_excel(r"Rory Testing Sheet 2024.xlsx", df_no_duplicates, 'Sheet1')
-            #     adjust_column_width(r"Rory Testing Sheet 2024.xlsx")
-                
-            #     if not df_titles.empty:
-            #         append_to_excel(r'titles_to_check.xlsx', df_titles, 'Sheet1')
-            #         adjust_column_width(r'titles_to_check.xlsx')
-                
-            #     if not df_titles_neg.empty:
-            #         append_to_excel(r'negative_titles.xlsx', df_titles_neg, 'Sheet1')
-            #         adjust_column_width(r'negative_titles.xlsx')
-
-       
         # Use your OpenAI API key
         openai_api_key = OPEN_API_KEY
 
@@ -1140,6 +1166,9 @@ def main(email, password):
     finally:
         try:
             brw.quit()
+            driver.execute_script("window.localStorage.clear();")
+            driver.execute_script("window.sessionStorage.clear();")
+            driver.execute_script("console.clear();")
         except Exception as e:
             pass
         print('Completed!')

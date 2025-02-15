@@ -216,6 +216,7 @@ today_str = datetime.datetime.now().strftime(
 if today_str[12:14] == '24':
     today_str = today_str[:12] + '00' + today_str[14:]
 new_today_str = datetime.datetime.strptime(today_str, "%a, %d %b %Y %H:%M:%S")
+print(new_today_str)
 start_range = new_today_str - datetime.timedelta(hours=3)
 # Setup Selenium WebDriver
 chrome_options = Options()
@@ -668,8 +669,8 @@ def main(email, password):
 
 if __name__ == "__main__":
     start = time.time()
-    email = "m08067064@gmail.com"
-    password = "thebestrep2025"
+    email = "info@thebestreputation.com"
+    password = "BestReps2024"
     main(email, password)
     end = time.time()
     print("Time Taken: {:.6f}s".format(end - start))

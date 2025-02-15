@@ -51,9 +51,13 @@ This project processes RSS feed data from Feedly, filters articles based on keyw
 
 ## Usage
 
-Run the script:
+Run the script in virtual environment:
 ```bash
 python Feedly.py
+```
+- Windows:
+```bash
+runFeedly.bat
 ```
 
 ## Project Structure

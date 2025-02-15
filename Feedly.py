@@ -401,7 +401,6 @@ def feedly_login(driver, email, password):
             # save_cookies(driver, cookies_path)
         except Exception as e:
             print(f"Error in feedly_login: {str(e)}")
-            driver.quit()
 
 def login_to_chatgpt_com(driver):
     try:
@@ -543,8 +542,6 @@ def scrape_today_articles(driver):
     except Exception as e:
         print('Error execution: ' + str(e))
         pass
-    finally:
-        driver.quit()
 
     return new_articles
 

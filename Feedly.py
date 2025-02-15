@@ -661,10 +661,10 @@ def main(email, password):
                 print(f"Error writing to files: {str(e)}")
 
     finally:
-        driver.quit()
         driver.execute_script("window.localStorage.clear();")
         driver.execute_script("window.sessionStorage.clear();")
         driver.execute_script("console.clear();")
+        driver.quit()
 
 if __name__ == "__main__":
     start = time.time()

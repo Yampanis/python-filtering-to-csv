@@ -539,7 +539,7 @@ def scrape_today_articles(driver):
             except Exception as e:
                 print('Error for article: ' + str(e))
         
-        print("Debugger!!!")
+        #print("Debugger!!!")
     except Exception as e:
         print('Error execution: ' + str(e))
         pass

@@ -669,8 +669,8 @@ def main(email, password):
 
 if __name__ == "__main__":
     start = time.time()
-    email = "info@thebestreputation.com"
-    password = "BestReps2024"
+    email = os.getenv("EMAIL")
+    password = os.getenv("PASSWORD")
     main(email, password)
     end = time.time()
     print("Time Taken: {:.6f}s".format(end - start))

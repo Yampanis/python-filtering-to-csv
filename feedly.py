@@ -691,3 +691,4 @@ if __name__ == "__main__":
     main(email, password)
     end = time.time()
     print("Time Taken: {:.6f}s".format(end - start))
+    time.sleep(30) # Delay the cmd window exiting immediately after a scheduled run

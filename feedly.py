@@ -25,9 +25,18 @@ from selectolax.parser import HTMLParser
 from urllib.request import unquote, quote
 from urllib.parse import urlparse
 import pandas as pd
+import logging
 
 load_dotenv()
 OPEN_API_KEY = os.getenv("OPEN_API_KEY")
+
+logging.basicConfig(
+    filename='feedly.log',                 # File to write logs to
+    level=logging.INFO,                 # Minimum level of logs to record
+    format='%(asctime)s - %(levelname)s - %(message)s',  # Log message format
+    datefmt='%Y-%m-%d %H:%M:%S'          # Date/time format
+)
+
 
 def infinite_scroll(driver, max_scrolls=5):
     """Scrolls the page down multiple times to load all content."""
@@ -216,6 +225,8 @@ today_str = datetime.datetime.now().strftime(
 if today_str[12:14] == '24':
     today_str = today_str[:12] + '00' + today_str[14:]
 new_today_str = datetime.datetime.strptime(today_str, "%a, %d %b %Y %H:%M:%S")
+
+logging.info(f"'{new_today_str}' new_today_str")
 print(new_today_str)
 start_range = new_today_str - datetime.timedelta(hours=3)
 # Setup Selenium WebDriver
@@ -617,12 +628,17 @@ def main(email, password):
         # Process articles
         if articles:
             print('Total collected articles: ' + str(len(articles)))
+            logging.info(f"'{str(len(articles))}' collected articles")
             unique_new_articles_neg = [article for article in articles if article[0] not in titles_read]
             print('Total unique articles before negatives check: ' + str(len(unique_new_articles_neg)))
+            logging.info(f"'{str(len(unique_new_articles_neg))}' unique articles before neg check")
             unique_new_articles = [article for article in unique_new_articles_neg if article[0] not in negative_titles_read]
             print('Total unique articles after negatives check: ' + str(len(unique_new_articles)))
+            logging.info(f"'{str(len(unique_new_articles))}' unique new articles after neg check")
             total_titles = len(titles_read)
             print('Total titles read: ' + str(total_titles))
+            logging.info(f"'{str(total_titles)}' titles read")
+            
 
             titles_read_set = set(titles_read)
             negative_titles_set = set(negative_titles_read)
@@ -657,6 +673,7 @@ def main(email, password):
 
                 append_to_excel(r"Rory Testing Sheet 2024.xlsx", excel_data, 'Sheet1')
                 print(f"Successfully wrote {len(results['decoded_articles'])} articles to Excel")
+                logging.info(f"'{len(results['decoded_articles'])}' articles to Excel\n")
                     
             except Exception as e:
                 print(f"Error writing to files: {str(e)}")

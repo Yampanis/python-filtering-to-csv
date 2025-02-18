@@ -32,6 +32,9 @@ logging.basicConfig(
     datefmt='%Y-%m-%d %H:%M:%S'          # Date/time format
 )
 
+titles_read = []
+negative_titles_read = []
+negative_keywords = []
 
 def infinite_scroll(driver, max_scrolls=5):
     """Scrolls the page down multiple times to load all content."""
@@ -192,25 +195,28 @@ def decode_google_news_url(source_url, interval=None):
 ##sheet3 = file.open("Rory Testing Sheet 2024 ")
 ##wks3 = sheet3.worksheet("NEW DATA")
 
-
-try:
-    titles_read_df = pd.read_excel(r'titles_to_check.xlsx', sheet_name='Sheet1')
-    titles_read = titles_read_df['Titles'].tolist()
-except Exception as ex:
-    print('Error: ' + str(ex))
-    titles_read = []
-try:
-    negative_titles_df = pd.read_excel(r'negative_titles.xlsx', sheet_name='Sheet1')
-    negative_titles_read = negative_titles_df['Titles'].tolist()
-except Exception as ex:
-    print('Error negative titles: ' + str(ex))
-    negative_titles_read = []
-try:
-    negative_keywords_df = pd.read_excel(r'negatives.xlsx', sheet_name='Sheet1')
-    negative_keywords = negative_keywords_df['Negative'].tolist()
-except Exception as ex:
-    print('Error negatives: '+ str(ex))
-    negative_keywords = []
+def initialize_global_variables():
+    global titles_read, negative_titles_read, negative_keywords
+    try:
+        titles_read_df = pd.read_excel(r'titles_to_check.xlsx', sheet_name='Sheet1')
+        titles_read = titles_read_df['Titles'].tolist()
+    except Exception as ex:
+        print('Error: ' + str(ex))
+        titles_read = []
+    try:
+        negative_titles_df = pd.read_excel(r'negative_titles.xlsx', sheet_name='Sheet1')
+        negative_titles_read = negative_titles_df['Titles'].tolist()
+    except Exception as ex:
+        print('Error negative titles: ' + str(ex))
+        negative_titles_read = []
+    try:
+        negative_keywords_df = pd.read_excel(r'negatives.xlsx', sheet_name='Sheet1')
+        negative_keywords = negative_keywords_df['Negative'].tolist()
+    except Exception as ex:
+        print('Error negatives: '+ str(ex))
+        negative_keywords = []
+    
+    return titles_read, negative_titles_read, negative_keywords
 
 # Define today's date
 today_str = datetime.datetime.now().strftime(
@@ -318,13 +324,7 @@ def adjust_column_width(workbook_path):
     except Exception as e:
         print(f"Error adjusting column widths: {e}")
 
-# Function to check if a title contains any negative keywords
-def contains_negative_keywords(title, keywords_set):
-    # Split title into words and check intersection with negative keywords
-    words_in_title = set(title.lower().split())
-    return not words_in_title.isdisjoint(keywords_set)
-
-def check_title_against_keywords(title, negative_keywords):
+def is_check_title_against_keywords(title, negative_keywords):
     """
     Check if a title contains any keyword (with word boundaries).
     """
@@ -334,10 +334,10 @@ def check_title_against_keywords(title, negative_keywords):
         keyword_pattern = r'\b' + re.escape(keyword.lower()) + r'\b'
         if re.search(keyword_pattern, title_lower):
             print(f"Title: {title_lower} contains keyword: {keyword_pattern}")
-            return False
-    return True
+            return True  # Contains negative keyword
+    return False    # No negative keywords found
 
-def url_contains_keyword(url, negative_keywords):
+def is_url_contains_keyword(url, negative_keywords):
     """
     Check if a URL contains any keyword as a substring.
     Strips spaces and ensures proper matches.
@@ -349,8 +349,8 @@ def url_contains_keyword(url, negative_keywords):
         # Substring matching
         if keyword_clean in url_lower:
             print(f"Url: {url_lower} contains keyword: {keyword_clean}")
-            return False
-    return True
+            return True  # Contains negative keyword
+    return False  # No negative keywords found
 
 
 def feedly_login(driver, email, password):
@@ -582,15 +582,14 @@ def process_articles_batch(unique_new_articles, batch_size=50):
                         decoded_articles.append((title, final_url))
                         
                         # Batch keyword checking
-                        if (url_contains_keyword(final_url, negative_keywords) or 
-                            check_title_against_keywords(title, negative_keywords)):
+                        if (is_url_contains_keyword(final_url, negative_keywords) or 
+                            is_check_title_against_keywords(title, negative_keywords)):
                             titles_neg.append(title)
                             negative_titles_set.add(title)
                         else:
                             pg_links.append(final_url)
                             titles.append(title)
                             existing_titles_set.add(title)
-                            decoded_articles.append((title, final_url))
                     else:
                         decoded_articles.append((title, url))
                         pg_links.append(url)

@@ -455,7 +455,6 @@ def scroll_down(driver, element_selector):
     except Exception as e:
         pass
 
-
 def scrape_today_articles(driver):
     new_articles = []
     batch_size = 500

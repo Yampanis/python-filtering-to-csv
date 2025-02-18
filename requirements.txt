@@ -11,3 +11,4 @@ openpyxl
 selectolax
 urllib3
 xlsxwriter
+setuptools

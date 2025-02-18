@@ -89,3 +89,10 @@
 2025-02-18 07:33:12 - INFO - '0' titles read
 2025-02-18 07:37:19 - INFO - '375' articles to Excel
 
+2025-02-18 09:29:05 - INFO - '2025-02-18 09:29:05' new_today_str
+2025-02-18 09:32:07 - INFO - '413' collected articles
+2025-02-18 09:32:07 - INFO - '263' unique articles before neg check
+2025-02-18 09:32:07 - INFO - '258' unique new articles after neg check
+2025-02-18 09:32:07 - INFO - '375' titles read
+2025-02-18 09:33:46 - INFO - '244' articles to Excel
+

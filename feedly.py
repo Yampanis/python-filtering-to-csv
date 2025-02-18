@@ -555,7 +555,6 @@ def process_articles_batch(unique_new_articles, batch_size=50):
     global titles_read
     global negative_titles_read
     global negative_keywords
-    print("KKKKKKKKKKKKK: ", negative_keywords)
     decoded_articles = []
     titles = []
     titles_neg = []
@@ -573,7 +572,6 @@ def process_articles_batch(unique_new_articles, batch_size=50):
             
             # Skip only if title exists in titles_to_check
             if title in existing_titles_set or title in negative_titles_set:
-                print(f"Skipping duplicate title: {title}")
                 continue
 
             # Check negative keywords first for all articles
@@ -589,7 +587,7 @@ def process_articles_batch(unique_new_articles, batch_size=50):
                     decoded_url = decode_google_news_url(url, interval=0.1)
                     if decoded_url.get("status"):
                         final_url = decoded_url["decoded_url"]
-                        # print("Decoded url: ", final_url)
+                        print("Decoded url: ", final_url)
                         if (is_url_contains_keyword(final_url, negative_keywords)):
                             print("Negative keyword found in decoded URL")
                             titles_neg.append(title)

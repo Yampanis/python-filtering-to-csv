@@ -328,13 +328,18 @@ def is_check_title_against_keywords(title, negative_keywords):
     """
     Check if a title contains any keyword (with word boundaries).
     """
-    title_lower = title.lower()
+    title_lower = title.lower().strip()
     for keyword in negative_keywords:
+        keyword_lower = keyword.lower().strip()
         # Use word boundary (\b) regex for word matching
-        keyword_pattern = r'\b' + re.escape(keyword.lower()) + r'\b'
+        keyword_pattern = r'\b' + re.escape(keyword_lower) + r'\b'
         if re.search(keyword_pattern, title_lower):
             print(f"Title: {title_lower} contains keyword: {keyword_pattern}")
             return True  # Contains negative keyword
+        
+        if keyword_lower in title_lower:
+            return True
+        
     return False    # No negative keywords found
 
 def is_url_contains_keyword(url, negative_keywords):
@@ -342,15 +347,21 @@ def is_url_contains_keyword(url, negative_keywords):
     Check if a URL contains any keyword as a substring.
     Strips spaces and ensures proper matches.
     """
-    url_lower = url.strip().lower()  # Normalize URL
+    url_lower = url.strip().lower()  
+    url_parts = re.split(r'[/\-_.]', url_lower)
     for keyword in negative_keywords:
-        # Normalize keyword (strip spaces, lowercase)
-        keyword_clean = keyword.lower()
-        # Substring matching
-        if keyword_clean in url_lower:
-            print(f"Url: {url_lower} contains keyword: {keyword_clean}")
-            return True  # Contains negative keyword
-    return False  # No negative keywords found
+        keyword_lower = keyword.lower().strip()
+        
+        if keyword_lower in url_lower:
+            print(f"Url: {url_lower} contains keyword: {keyword_lower}")
+            return True
+            
+        for part in url_parts:
+            if keyword_lower in part:
+                print(f"Url: {url_lower} contains keyword: {keyword_lower}")
+                return True
+                
+    return False
 
 
 def feedly_login(driver, email, password):
@@ -401,7 +412,7 @@ def feedly_login(driver, email, password):
             )
             password_input.send_keys(password)
             password_input.send_keys(Keys.ENTER)
-            time.sleep(10)
+            time.sleep(5)
             print("Logged in successfully!!!")
             # save_cookies(driver, cookies_path)
         except Exception as e:
@@ -575,7 +586,7 @@ def process_articles_batch(unique_new_articles, batch_size=50):
 
             # Check negative keywords first for all articles
             if (is_check_title_against_keywords(title, negative_keywords)):
-                print("Negative keyword found in title or URL")
+                print("Negative keyword found in title")
                 titles_neg.append(title)
                 negative_titles_set.add(title)
                 continue
@@ -655,7 +666,6 @@ def main(email, password):
             except Exception as e:
                 print(f"Error reading from feedly_articles_raw.csv: {str(e)}")
                 
-        #   Capture Feedly Articles before processing
         #   Save csv file for future offline testing
         save_for_offline_testing = 0
         if save_for_offline_testing:
@@ -665,29 +675,21 @@ def main(email, password):
 
         # Process articles
         if articles:
-            print('Total collected articles: ' + str(len(articles)))
-            logging.info(f"'{str(len(articles))}' collected articles")
-            unique_new_articles_neg = [article for article in articles if article[0] not in titles_read]
-            print('Total unique articles before negatives check: ' + str(len(unique_new_articles_neg)))
-            logging.info(f"'{str(len(unique_new_articles_neg))}' unique articles before neg check")
-            unique_new_articles = [article for article in unique_new_articles_neg if article[0] not in negative_titles_read]
-            print('Total unique articles after negatives check: ' + str(len(unique_new_articles)))
-            logging.info(f"'{str(len(unique_new_articles))}' unique new articles after neg check")
-            total_titles = len(titles_read)
-            print('Total titles read: ' + str(total_titles))
-            logging.info(f"'{str(total_titles)}' titles read")
-            
+            print(f'Total collected articles: {len(articles)}')
+            logging.info(f'Total collected articles: {len(articles)}')
 
+            # Convert to sets for faster lookup
             titles_read_set = set(titles_read)
             negative_titles_set = set(negative_titles_read)
 
-            # Filter articles in one pass
-            unique_new_articles = [
+            # First, filter out already processed titles
+            unique_articles = [
                 article for article in articles 
                 if article[0] not in titles_read_set and article[0] not in negative_titles_set
             ]
-
-            results = process_articles_batch(unique_new_articles)
+            print(f'Unique articles (not in titles_read or negative_titles): {len(unique_articles)}')
+            
+            results = process_articles_batch(unique_articles)
 
             # Write to CSV immediately after processing
             try:

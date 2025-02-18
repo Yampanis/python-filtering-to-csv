@@ -628,10 +628,29 @@ def main(email, password):
         
         adjust_column_width(r"Rory Testing Sheet 2024.xlsx")
     
+        # Load articles from csv file saved previously for offline testing
+    test_offline = 0
     try:
-        feedly_login(driver, email, password)
-        time.sleep(1.4) 
-        articles = scrape_today_articles(driver)
+        if not test_offline:
+            feedly_login(driver, email, password)
+            time.sleep(1.4) 
+            articles = scrape_today_articles(driver)
+        else:
+            articles = []
+            try:
+                articles_raw_df = pd.read_csv(r'feedly_articles_raw.csv')
+                articles = list(articles_raw_df.itertuples(index=False, name=None))
+                print(f"Successfully read {len(articles)} articles from CSV")
+            except Exception as e:
+                print(f"Error reading from feedly_articles_raw.csv: {str(e)}")
+                
+        #   Capture Feedly Articles before processing
+        #   Save csv file for future offline testing
+        save_for_offline_testing = 0
+        if save_for_offline_testing:
+            articles_raw_df = pd.DataFrame(articles, columns=['Title', 'URL'])
+            articles_raw_df.to_csv(r'feedly_articles_raw.csv', index=False)
+            print(f"Successfully wrote {len(articles)} articles to CSV")
 
         # Process articles
         if articles:
@@ -687,10 +706,11 @@ def main(email, password):
                 print(f"Error writing to files: {str(e)}")
 
     finally:
-        driver.execute_script("window.localStorage.clear();")
-        driver.execute_script("window.sessionStorage.clear();")
-        driver.execute_script("console.clear();")
-        driver.quit()
+        if not test_offline:
+            driver.execute_script("window.localStorage.clear();")
+            driver.execute_script("window.sessionStorage.clear();")
+            driver.execute_script("console.clear();")
+            driver.quit()
 
 if __name__ == "__main__":
     start = time.time()

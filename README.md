@@ -44,15 +44,20 @@ This project processes RSS feed data from Feedly, filters articles based on keyw
 
 7. **Initialize Excel Files**
    The script will automatically create these Excel files:
-   - `Rory Testing Sheet 2024.xlsx`: Main output file
-   - `titles_to_check.xlsx`: Articles to review
-   - `negative_titles.xlsx`: Filtered negative articles
+   - `Rory Testing Sheet 2024.xlsx`: Main output. Append new 'cleaned' tities. Truncated by user.
+   - `titles_to_check.xlsx`: Running list of titles used to remove duplicates from new titles.
+   - `negative_titles.xlsx`: Titles filtered from out as 'negative'.
+   - `negatives.xlsx`: List of words that establish title as negative.
 
 ## Usage
 
 Run the script:
 ```bash
-python Feedly.py
+python Feedly.py (from within virtual environment)
+```
+- Windows:
+```bash
+runFeedly.bat (from cmd or scheduler)
 ```
 
 ## Project Structure

@@ -394,7 +394,7 @@ def feedly_login(driver, email, password):
             )
             email_input.send_keys(email)
             email_input.send_keys(Keys.ENTER)
-            time.sleep(3)
+            time.sleep(10)
 
             password_input = WebDriverWait(driver, 10).until(
                 EC.presence_of_element_located((By.XPATH, "//input[@type='password']"))

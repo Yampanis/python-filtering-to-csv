@@ -394,7 +394,7 @@ def feedly_login(driver, email, password):
             )
             email_input.send_keys(email)
             email_input.send_keys(Keys.ENTER)
-            time.sleep(2)
+            time.sleep(3)
 
             password_input = WebDriverWait(driver, 10).until(
                 EC.presence_of_element_located((By.XPATH, "//input[@type='password']"))
@@ -459,19 +459,19 @@ def scroll_down(driver, element_selector):
 def scrape_today_articles(driver):
     new_articles = []
     batch_size = 500
-    last_height = driver.execute_script(
-        "return document.querySelector('#feedlyFrame').scrollHeight")
-    '''while True:
-        # Scroll down and wait for page load
-        scroll_down(driver, "//*[@id='feedlyFrame']")
+    # last_height = driver.execute_script(
+    #     "return document.querySelector('#feedlyFrame').scrollHeight")
+    # '''while True:
+    #     # Scroll down and wait for page load
+    #     scroll_down(driver, "//*[@id='feedlyFrame']")
 
-        # Check if we reached the bottom
-        new_height = driver.execute_script(
-            "return document.querySelector('#feedlyFrame').scrollHeight")
-        if new_height == last_height:
-            break
-        last_height = new_height
-        time.sleep(1.5)'''
+    #     # Check if we reached the bottom
+    #     new_height = driver.execute_script(
+    #         "return document.querySelector('#feedlyFrame').scrollHeight")
+    #     if new_height == last_height:
+    #         break
+    #     last_height = new_height
+    #     time.sleep(1.5)'''
 
     try:
         articles = driver.find_elements(By.CLASS_NAME, "entry.magazine")
@@ -551,9 +551,11 @@ def scrape_today_articles(driver):
     return new_articles
 
 def process_articles_batch(unique_new_articles, batch_size=50):
+    """Process articles with consistent negative keyword checking"""
     global titles_read
     global negative_titles_read
-
+    global negative_keywords
+    print("KKKKKKKKKKKKK: ", negative_keywords)
     decoded_articles = []
     titles = []
     titles_neg = []
@@ -568,45 +570,56 @@ def process_articles_batch(unique_new_articles, batch_size=50):
 
         for article in batch:
             title, url = str(article[0]), str(article[1])
+            
+            # Skip only if title exists in titles_to_check
             if title in existing_titles_set or title in negative_titles_set:
-                print(f"Skipping duplicate or negative title: {title}")
+                print(f"Skipping duplicate title: {title}")
                 continue
 
+            # Check negative keywords first for all articles
+            if (is_check_title_against_keywords(title, negative_keywords)):
+                print("Negative keyword found in title or URL")
+                titles_neg.append(title)
+                negative_titles_set.add(title)
+                continue
+
+            # Process Google News URLs
             if 'news.google' in url:
                 try:
                     decoded_url = decode_google_news_url(url, interval=0.1)
-
                     if decoded_url.get("status"):
                         final_url = decoded_url["decoded_url"]
-                        print("Decoded url: ", final_url)
-                        decoded_articles.append((title, final_url))
-                        
-                        # Batch keyword checking
-                        if (is_url_contains_keyword(final_url, negative_keywords) or 
-                            is_check_title_against_keywords(title, negative_keywords)):
+                        # print("Decoded url: ", final_url)
+                        if (is_url_contains_keyword(final_url, negative_keywords)):
+                            print("Negative keyword found in decoded URL")
                             titles_neg.append(title)
                             negative_titles_set.add(title)
-                        else:
-                            pg_links.append(final_url)
-                            titles.append(title)
-                            existing_titles_set.add(title)
+                            continue
+                        # Add to positive results
+                        pg_links.append(final_url)
+                        titles.append(title)
+                        existing_titles_set.add(title)
+                        decoded_articles.append((title, final_url))
                     else:
-                        decoded_articles.append((title, url))
+                        # Use original URL if decoding fails
                         pg_links.append(url)
                         titles.append(title)
                         existing_titles_set.add(title)
-                    
+                        decoded_articles.append((title, url))
                 except Exception as e:
-                    print('Error trying to convert google news link: ' + str(e))
+                    print(f'Error decoding Google News URL: {str(e)}')
                     pg_links.append(url)
                     titles.append(title)
                     existing_titles_set.add(title)
+                    decoded_articles.append((title, url))
             else:
+                # Process non-Google News URLs
                 pg_links.append(url)
                 titles.append(title)
                 existing_titles_set.add(title)
                 decoded_articles.append((title, url))
 
+    # Update global variables
     titles_read = list(existing_titles_set)
     negative_titles_read = list(negative_titles_set)
             
@@ -618,6 +631,7 @@ def process_articles_batch(unique_new_articles, batch_size=50):
     }
 
 def main(email, password):
+    initialize_global_variables()
     # Define headers and empty data
     if not os.path.exists(r"Rory Testing Sheet 2024.xlsx"):
         headers = ["Url","Title","Description","Reach Out","Reasons", "Keywords","Location","NOTES"]

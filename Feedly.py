@@ -6,10 +6,6 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-import undetected_chromedriver as uc
-from googleapiclient.discovery import build
-from google.oauth2.service_account import Credentials
-from oauth2client.service_account import ServiceAccountCredentials
 import pandas as pd
 import requests
 import os
@@ -17,12 +13,11 @@ import pickle
 from dotenv import load_dotenv
 import json
 import datetime
-import pyperclip
 import re
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 from selectolax.parser import HTMLParser
-from urllib.request import unquote, quote
+from urllib.request import quote
 from urllib.parse import urlparse
 import pandas as pd
 
@@ -207,8 +202,6 @@ try:
 except Exception as ex:
     print('Error negatives: '+ str(ex))
     negative_keywords = []
-# Convert negative keywords to a set for efficient lookups
-negative_keywords_set = set(negative_keywords)
 
 # Define today's date
 today_str = datetime.datetime.now().strftime(
@@ -546,20 +539,26 @@ def scrape_today_articles(driver):
     return new_articles
 
 def process_articles_batch(unique_new_articles, batch_size=50):
+    global titles_read
+    global negative_titles_read
+
     decoded_articles = []
     titles = []
     titles_neg = []
     pg_links = []
-    existing_titles = set()
+    existing_titles_set = set(titles_read)
+    negative_titles_set = set(negative_titles_read)
+
+    print(f"Processing {len(unique_new_articles)} articles in batches of {batch_size}")
 
     for i in range(0, len(unique_new_articles), batch_size):
         batch = unique_new_articles[i:i + batch_size]
 
         for article in batch:
             title, url = str(article[0]), str(article[1])
-            if title in existing_titles:
+            if title in existing_titles_set or title in negative_titles_set:
+                print(f"Skipping duplicate or negative title: {title}")
                 continue
-            existing_titles.add(title)
 
             if 'news.google' in url:
                 try:
@@ -574,21 +573,31 @@ def process_articles_batch(unique_new_articles, batch_size=50):
                         if (url_contains_keyword(final_url, negative_keywords) or 
                             check_title_against_keywords(title, negative_keywords)):
                             titles_neg.append(title)
+                            negative_titles_set.add(title)
                         else:
                             pg_links.append(final_url)
                             titles.append(title)
+                            existing_titles_set.add(title)
+                            decoded_articles.append((title, final_url))
                     else:
                         decoded_articles.append((title, url))
                         pg_links.append(url)
                         titles.append(title)
+                        existing_titles_set.add(title)
                     
                 except Exception as e:
                     print('Error trying to convert google news link: ' + str(e))
                     pg_links.append(url)
                     titles.append(title)
+                    existing_titles_set.add(title)
             else:
                 pg_links.append(url)
                 titles.append(title)
+                existing_titles_set.add(title)
+                decoded_articles.append((title, url))
+
+    titles_read = list(existing_titles_set)
+    negative_titles_read = list(negative_titles_set)
             
     return {
         'decoded_articles': decoded_articles,

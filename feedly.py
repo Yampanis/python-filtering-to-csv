@@ -212,6 +212,7 @@ def initialize_global_variables():
     try:
         negative_keywords_df = pd.read_excel(r'negatives.xlsx', sheet_name='Sheet1')
         negative_keywords = negative_keywords_df['Negative'].tolist()
+        logging.info(f"'{len(negative_keywords)}' negative keywords")
     except Exception as ex:
         print('Error negatives: '+ str(ex))
         negative_keywords = []
@@ -706,7 +707,7 @@ def main(email, password):
         # Process articles
         if articles:
             print(f'Total collected articles: {len(articles)}')
-            logging.info(f'Total collected articles: {len(articles)}')
+            logging.info(f"'{len(articles)}' collected articles")
 
             # Convert to sets for faster lookup
             titles_read_set = set(titles_read)

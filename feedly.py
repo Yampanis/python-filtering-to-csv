@@ -694,7 +694,7 @@ def main(email, password):
         # Process articles
         if articles:
             print(f'Total collected articles: {len(articles)}')
-            logging.info(f'Total collected articles: {len(articles)}')
+            logging.info(f"'{len(articles)}' collected articles")
 
             # Convert to sets for faster lookup
             titles_read_set = set(titles_read)

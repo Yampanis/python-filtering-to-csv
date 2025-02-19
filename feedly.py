@@ -251,7 +251,7 @@ driver = webdriver.Chrome(service=service, options=chrome_options)
 ##driver = uc.Chrome(options=options, driver_executable_path=r'C:\Users\the_b\Desktop\Feedly\browser\chromedriver.exe', version_main=130)
 
 def append_to_excel(existing_file, new_data, sheet_name):
-    """Append data to Excel with formatting"""
+    """Append data to Excel with custom column widths"""
     try:
         # First read existing data with openpyxl engine
         try:
@@ -278,15 +278,33 @@ def append_to_excel(existing_file, new_data, sheet_name):
             header_font = Font(bold=True)
             header_fill = PatternFill(start_color='D7E4BC', end_color='D7E4BC', fill_type='solid')
             
+            # Custom column widths
+            column_widths = {
+                'URL': 30,  # Fixed width for URL column
+                'Title': 60,
+                'Description': 40,
+                'Reach Out': 15,
+                'Reasons': 25,
+                'Keywords': 15,
+                'Location': 15,
+                'NOTES': 25
+            }
+            
+            # Apply column formatting
             for col_num, value in enumerate(combined_data.columns.values):
-                # Set column width
-                max_length = max(
-                    combined_data[value].astype(str).apply(len).max(),
-                    len(str(value))
-                ) + 2
-                worksheet.column_dimensions[get_column_letter(col_num + 1)].width = max_length
+                column_letter = get_column_letter(col_num + 1)
                 
-                # Format header using new style
+                # Set column width
+                if value == 'URL':  # First column
+                    worksheet.column_dimensions[column_letter].width = column_widths['URL']
+                else:
+                    max_length = max(
+                        combined_data[value].astype(str).apply(len).max(),
+                        len(str(value))
+                    ) + 2
+                    worksheet.column_dimensions[column_letter].width = max_length
+                
+                # Format header
                 cell = worksheet.cell(row=1, column=col_num + 1)
                 cell.font = header_font
                 cell.fill = header_fill

@@ -352,7 +352,7 @@ def is_check_title_against_keywords(title, negative_keywords):
         # Use word boundary (\b) regex for word matching
         keyword_pattern = r'\b' + re.escape(keyword_lower) + r'\b'
         if re.search(keyword_pattern, title_lower):
-            print(f"Title: {title_lower} contains keyword: {keyword_pattern}")
+            print(f"Title: {title_lower} a negative contains keyword: {keyword_pattern}")
             return True  # Contains negative keyword
         
         if keyword_lower in title_lower:
@@ -371,12 +371,12 @@ def is_url_contains_keyword(url, negative_keywords):
         keyword_lower = keyword.lower().strip()
         
         if keyword_lower in url_lower:
-            print(f"Url: {url_lower} contains keyword: {keyword_lower}")
+            print(f"Url: {url_lower} contains this negative keyword: {keyword_lower}")
             return True
             
         for part in url_parts:
             if keyword_lower in part:
-                print(f"Url: {url_lower} contains keyword: {keyword_lower}")
+                print(f"Url: {url_lower} contains this negative keyword: {keyword_lower}")
                 return True
                 
     return False
@@ -604,7 +604,7 @@ def process_articles_batch(unique_new_articles, batch_size=50):
 
             # Check negative keywords first for all articles
             if (is_check_title_against_keywords(title, negative_keywords)):
-                print("Negative keyword found in title")
+                print("Negative keyword found in this title: ", title)
                 titles_neg.append(title)
                 negative_titles_set.add(title)
                 continue
@@ -617,7 +617,7 @@ def process_articles_batch(unique_new_articles, batch_size=50):
                         final_url = decoded_url["decoded_url"]
                         print("Decoded url: ", final_url)
                         if (is_url_contains_keyword(final_url, negative_keywords)):
-                            print("Negative keyword found in decoded URL")
+                            print("Negative keyword found in decoded URL: ", final_url)
                             titles_neg.append(title)
                             negative_titles_set.add(title)
                             continue
@@ -627,19 +627,33 @@ def process_articles_batch(unique_new_articles, batch_size=50):
                         existing_titles_set.add(title)
                         decoded_articles.append((title, final_url))
                     else:
-                        # Use original URL if decoding fails
-                        pg_links.append(url)
+                        if (is_url_contains_keyword(url, negative_keywords)):
+                            print("Negative keyword found in this URL: ", url)
+                            titles_neg.append(title)
+                            negative_titles_set.add(title)
+                            continue
                         titles.append(title)
+                        pg_links.append(url)
                         existing_titles_set.add(title)
                         decoded_articles.append((title, url))
                 except Exception as e:
                     print(f'Error decoding Google News URL: {str(e)}')
+                    if (is_url_contains_keyword(url, negative_keywords)):
+                        print("Negative keyword found in this URL", url)
+                        titles_neg.append(title)
+                        negative_titles_set.add(title)
+                        continue
                     pg_links.append(url)
                     titles.append(title)
                     existing_titles_set.add(title)
                     decoded_articles.append((title, url))
             else:
                 # Process non-Google News URLs
+                if (is_url_contains_keyword(url, negative_keywords)):
+                    print("Negative keyword found in this URL: ", url)
+                    titles_neg.append(title)
+                    negative_titles_set.add(title)
+                    continue
                 pg_links.append(url)
                 titles.append(title)
                 existing_titles_set.add(title)
@@ -667,8 +681,6 @@ def main(email, password):
         df.to_excel(r"Rory Testing Sheet 2024.xlsx", index=False, engine="openpyxl")
         
         adjust_column_width(r"Rory Testing Sheet 2024.xlsx")
-    
-        # Load articles from csv file saved previously for offline testing
     test_offline = 0
     try:
         if not test_offline:

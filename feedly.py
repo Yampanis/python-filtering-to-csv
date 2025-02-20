@@ -344,40 +344,35 @@ def adjust_column_width(workbook_path):
         print(f"Error adjusting column widths: {e}")
 
 def is_check_title_against_keywords(title, negative_keywords):
-    """
-    Check if a title contains any keyword (with word boundaries).
-    """
     title_lower = title.lower().strip()
+    
     for keyword in negative_keywords:
         keyword_lower = keyword.lower().strip()
-        # Use word boundary (\b) regex for word matching
-        keyword_pattern = r'\b' + re.escape(keyword_lower) + r'\b'
+        
+        keyword_pattern = f'(?:^|[\s,.\-!?()[\]{{"}}"]|\b)({re.escape(keyword_lower)})'
+        
         if re.search(keyword_pattern, title_lower):
-            print(f"Title: {title_lower} a negative contains keyword: {keyword_pattern}")
-            return True  # Contains negative keyword
-        
-        if keyword_lower in title_lower:
-            return True
-        
-    return False    # No negative keywords found
-
-def is_url_contains_keyword(url, negative_keywords):
-    """
-    Check if a URL contains any keyword as a substring.
-    Strips spaces and ensures proper matches.
-    """
-    url_lower = url.strip().lower()  
-    url_parts = re.split(r'[/\-_.]', url_lower)
-    for keyword in negative_keywords:
-        keyword_lower = keyword.lower().strip()
-        
-        if keyword_lower in url_lower:
-            print(f"Url: {url_lower} contains this negative keyword: {keyword_lower}")
+            print(f"Found negative keyword '{keyword_lower}' in title: {title}")
             return True
             
+    return False
+
+def is_url_contains_keyword(url, negative_keywords):
+    url_lower = url.strip().lower()
+    url_parts = re.split(r'[/\-_.]', url_lower)
+    
+    for keyword in negative_keywords:
+        keyword_lower = keyword.lower().strip()
+        
+        keyword_pattern = f'(?:^|[/\-_.]|\b)({re.escape(keyword_lower)})'
+        
+        if re.search(keyword_pattern, url_lower):
+            print(f"Found negative keyword '{keyword_lower}' in URL: {url}")
+            return True
+        
         for part in url_parts:
-            if keyword_lower in part:
-                print(f"Url: {url_lower} contains this negative keyword: {keyword_lower}")
+            if part and re.search(f'^{re.escape(keyword_lower)}', part):
+                print(f"Found negative keyword '{keyword_lower}' in URL part: {part}")
                 return True
                 
     return False
@@ -605,7 +600,6 @@ def process_articles_batch(unique_new_articles, batch_size=50):
 
             # Check negative keywords first for all articles
             if (is_check_title_against_keywords(title, negative_keywords)):
-                print("Negative keyword found in this title: ", title)
                 titles_neg.append(title)
                 negative_titles_set.add(title)
                 continue
@@ -618,7 +612,6 @@ def process_articles_batch(unique_new_articles, batch_size=50):
                         final_url = decoded_url["decoded_url"]
                         print("Decoded url: ", final_url)
                         if (is_url_contains_keyword(final_url, negative_keywords)):
-                            print("Negative keyword found in decoded URL: ", final_url)
                             titles_neg.append(title)
                             negative_titles_set.add(title)
                             continue
@@ -629,7 +622,6 @@ def process_articles_batch(unique_new_articles, batch_size=50):
                         decoded_articles.append((title, final_url))
                     else:
                         if (is_url_contains_keyword(url, negative_keywords)):
-                            print("Negative keyword found in this URL: ", url)
                             titles_neg.append(title)
                             negative_titles_set.add(title)
                             continue
@@ -640,7 +632,6 @@ def process_articles_batch(unique_new_articles, batch_size=50):
                 except Exception as e:
                     print(f'Error decoding Google News URL: {str(e)}')
                     if (is_url_contains_keyword(url, negative_keywords)):
-                        print("Negative keyword found in this URL", url)
                         titles_neg.append(title)
                         negative_titles_set.add(title)
                         continue
@@ -651,7 +642,6 @@ def process_articles_batch(unique_new_articles, batch_size=50):
             else:
                 # Process non-Google News URLs
                 if (is_url_contains_keyword(url, negative_keywords)):
-                    print("Negative keyword found in this URL: ", url)
                     titles_neg.append(title)
                     negative_titles_set.add(title)
                     continue

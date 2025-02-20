@@ -349,7 +349,7 @@ def is_check_title_against_keywords(title, negative_keywords):
     for keyword in negative_keywords:
         keyword_lower = keyword.lower().strip()
         
-        keyword_pattern = f'(?:^|[\s,.\-!?()[\]{{"}}"]|\b)({re.escape(keyword_lower)})'
+        keyword_pattern = r'(?:^|[\s,.\-!?()\[\]{}"]|\b)' + re.escape(keyword_lower)
         
         if re.search(keyword_pattern, title_lower):
             print(f"Found negative keyword '{keyword_lower}' in title: {title}")
@@ -364,7 +364,7 @@ def is_url_contains_keyword(url, negative_keywords):
     for keyword in negative_keywords:
         keyword_lower = keyword.lower().strip()
         
-        keyword_pattern = f'(?:^|[/\-_.]|\b)({re.escape(keyword_lower)})'
+        keyword_pattern = r'(?:^|[/\-_.]|\b)' + re.escape(keyword_lower)
         
         if re.search(keyword_pattern, url_lower):
             print(f"Found negative keyword '{keyword_lower}' in URL: {url}")

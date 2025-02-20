@@ -587,7 +587,7 @@ def process_articles_batch(unique_new_articles, batch_size=50):
     existing_titles_set = set(titles_read)
     negative_titles_set = set(negative_titles_read)
 
-    print(f"Processing {len(unique_new_articles)} articles in batches of {batch_size}")
+    print(f"Processing {len(unique_new_articles)} articles in batches of {batch_size}\n")
 
     for i in range(0, len(unique_new_articles), batch_size):
         batch = unique_new_articles[i:i + batch_size]

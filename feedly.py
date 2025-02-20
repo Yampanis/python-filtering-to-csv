@@ -545,7 +545,8 @@ def scrape_today_articles(driver):
             new_last_height = new_height1
             counter += 1
             time.sleep(1.5)
-
+        logging.info(f"'{counter}' Feedly scrape loops\n")
+        
         new_articles1 = driver.find_elements(By.CLASS_NAME, "entry.magazine")
         for article in new_articles1:
             try:

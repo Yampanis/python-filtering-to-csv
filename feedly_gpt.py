@@ -23,6 +23,10 @@ import pandas as pd
 import logging
 from openai import OpenAI
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
+from queue import Queue
+
 load_dotenv()
 OPEN_API_KEY = os.getenv("OPEN_API_KEY")
 
@@ -237,17 +241,19 @@ driver = webdriver.Chrome(service=service, options=chrome_options)
 
 def create_gpt_prompt(article_batch):
     """Create structured prompt for GPT analysis"""
-    prompt = """Analyze each article and provide information in this exact format:
+    prompt = """Analyze each article and provide information in exactly this format:
     URL#Title#Description#ReachOut#Reasons#Keywords#Location
+
+    Important: Do not use '#' character anywhere in the content, use commas or semicolons instead.
     
     For each article provide:
-    - Description: 100-200 word summary
+    - Description: 100-200 word summary (no '#' characters)
     - ReachOut: Key person or organization to contact
-    - Reasons: Why this is relevant
+    - Reasons: Why this is relevant (use commas instead of '#')
     - Keywords: Up to 20 important terms (comma separated)
     - Location: Geographic location mentioned
     
-    Format each response on a new line with '#' separators.
+    Format each response on a new line with exactly 6 '#' separators.
     """
     
     for title, url in article_batch:
@@ -256,55 +262,64 @@ def create_gpt_prompt(article_batch):
     return prompt
 
 def call_gpt_api(prompt):
-    """Call GPT API with proper error handling"""
+    """Call GPT API using GPT-4 Turbo model for faster processing"""
     try:
         client = OpenAI(api_key=OPEN_API_KEY)
         response = client.chat.completions.create(
-            model="gpt-4",
-            messages=[
-                {"role": "system", "content": "You are a professional article analyzer. Provide information in the exact format requested."},
-                {"role": "user", "content": prompt}
-            ],
+            model="gpt-4-1106-preview",  # Changed to GPT-4 Turbo
+            messages=[{
+                "role": "user",
+                "content": prompt
+            }],
+            max_tokens=1000,
             temperature=0.7,
-            max_tokens=2000
+            response_format={ "type": "text" }  # Force text response for faster processing
         )
-        return response.choices[0].message.content
+        
+        if response.choices:
+            content = response.choices[0].message.content
+            return parse_gpt_api_response_content(content)
+        else:
+            print("No response content from GPT")
+            return None
+            
     except Exception as e:
-        print(f"GPT API call error: {e}")
+        print(f"OpenAI API call error: {str(e)}")
         return None
 
-def parse_gpt_response(response_text):
-    """Parse GPT response with better error handling"""
-    parsed_results = []
-    if not response_text:
-        return parsed_results
-        
+def parse_gpt_api_response_content(content):
+    """Parse GPT response content directly"""
     try:
-        lines = response_text.strip().split('\n')
+        articles = []
+        lines = content.strip().split('\n')
+
         for line in lines:
-            if '#' in line:
-                parts = line.split('#')
-                if len(parts) == 7:  # Ensure we have all 7 expected parts
-                    parsed_results.append({
-                        'URL': parts[0],
-                        'Title': parts[1],
-                        'Description': parts[2],
-                        'Reach Out': parts[3],
-                        'Reasons': parts[4],
-                        'Keywords': parts[5],
-                        'Location': parts[6]
-                    })
-                else:
-                    print(f"Invalid format in line: {line}")
+            if '#' not in line:
+                continue
+
+            parts = line.split('#')
+            if len(parts) >= 7:
+                article = {
+                    "url": parts[0].strip(),
+                    "title": parts[1].strip(),
+                    "description": parts[2].strip(),
+                    "reach_out": parts[3].strip(),
+                    "reasons": parts[4].strip(),
+                    "keywords": parts[5].strip(),
+                    "location": parts[6].strip()
+                }
+                articles.append(article)
+
+        return json.dumps(articles, indent=4) if articles else None
+
     except Exception as e:
-        print(f"Error parsing GPT response: {e}")
-    
-    return parsed_results
+        print(f"Response parsing error: {str(e)}")
+        return None
 
 def append_to_excel(existing_file, new_data, sheet_name):
-    """Append data to Excel with custom column widths"""
+    """Append data to Excel with optimized column widths"""
     try:
-        # First read existing data with openpyxl engine
+        # First read existing data
         try:
             existing_data = pd.read_excel(existing_file, sheet_name=None, engine='openpyxl')
         except:
@@ -316,7 +331,7 @@ def append_to_excel(existing_file, new_data, sheet_name):
         else:
             combined_data = new_data
             
-        # Write to Excel using openpyxl engine
+        # Write to Excel
         with pd.ExcelWriter(existing_file, engine='openpyxl', mode='w') as writer:
             combined_data.to_excel(writer, sheet_name=sheet_name, index=False)
             
@@ -329,29 +344,28 @@ def append_to_excel(existing_file, new_data, sheet_name):
             header_font = Font(bold=True)
             header_fill = PatternFill(start_color='D7E4BC', end_color='D7E4BC', fill_type='solid')
             
+            # Updated column widths with more reasonable values
             column_widths = {
-                'URL': 30, 
-                'Title': 60,
-                'Description': 40,
-                'Reach Out': 15,
-                'Reasons': 25,
-                'Keywords': 15,
-                'Location': 15,
-                'NOTES': 25
+                'URL': 25,           # Reduced from 30
+                'Title': 40,         # Reduced from 60
+                'Description': 30,    # Reduced from 40
+                'Reach Out': 12,     # Reduced from 15
+                'Reasons': 20,       # Reduced from 25
+                'Keywords': 12,      # Reduced from 15
+                'Location': 12,      # Reduced from 15
+                'NOTES': 15          # Reduced from 25
             }
             
+            # Apply column widths and formatting
             for col_num, value in enumerate(combined_data.columns.values):
                 column_letter = get_column_letter(col_num + 1)
                 
-                # Set column width
-                if value == 'URL':  # First column
-                    worksheet.column_dimensions[column_letter].width = column_widths['URL']
+                # Set fixed column width based on predefined values
+                if value in column_widths:
+                    worksheet.column_dimensions[column_letter].width = column_widths[value]
                 else:
-                    max_length = max(
-                        combined_data[value].astype(str).apply(len).max(),
-                        len(str(value))
-                    ) + 2
-                    worksheet.column_dimensions[column_letter].width = max_length
+                    # For any other columns, set a reasonable default
+                    worksheet.column_dimensions[column_letter].width = 15
                 
                 # Format header
                 cell = worksheet.cell(row=1, column=col_num + 1)
@@ -537,231 +551,268 @@ def scroll_down(driver, element_selector):
         pass
 
 def scrape_today_articles(driver):
-    new_articles = []
-    batch_size = 500
-    last_height = driver.execute_script(
-        "return document.querySelector('#feedlyFrame').scrollHeight")
-    '''while True:
-        # Scroll down and wait for page load
-        scroll_down(driver, "//*[@id='feedlyFrame']")
-
-        # Check if we reached the bottom
-        new_height = driver.execute_script(
-            "return document.querySelector('#feedlyFrame').scrollHeight")
-        if new_height == last_height:
-            break
-        last_height = new_height
-        time.sleep(1.5)'''
-
+    """Improved article scraping with reliable scrolling"""
+    new_articles = set()
+    scroll_attempts = 0
+    max_scrolls = 30
+    found_old_article = False
+    
     try:
-        articles = driver.find_elements(By.CLASS_NAME, "entry.magazine")
-        time.sleep(3)
-        
-        for article in articles:
-            try:
-                date_span = article.find_element(By.CSS_SELECTOR, "span[title*='Published']")
-                article_date = date_span.get_attribute("title")
-                new_article_date = re.sub(r'\n', '', str(article_date)).strip()
-                new_article_date = re.sub(r'.*Received: | GMT.*', '', new_article_date).strip()
-                if new_article_date[17:19] == '24':
-                    new_article_date = new_article_date[:17] + '00' + new_article_date[19:]
-                new_article_date_conv = datetime.datetime.strptime(new_article_date, "%a, %d %b %Y %H:%M:%S")
-                if start_range <= new_article_date_conv <= new_today_str:
-                    title = article.find_element(By.CSS_SELECTOR, "a.EntryTitleLink").text
-                    link = article.find_element(By.CSS_SELECTOR, "a.EntryTitleLink").get_attribute("href")
-                    
-                    if len(new_articles) % batch_size == 0:
-                        driver.execute_script("window.localStorage.clear();")
-                        driver.execute_script("window.sessionStorage.clear();")
-
-                    article = (title, link)
-                    if article not in new_articles:
-                        new_articles.append(article)
-                        
-            except Exception as e:
-                print('Error for article: ' + str(e))
-        time.sleep(1.5)
-        driver.get(
+        for feed_url in [
             'https://feedly.com/i/collection/content/user/9e62dc2d-90e6-453b-88f4-47b630b9a4aa/category/global.all'
-            #'https://feedly.com/i/collection/content/user/9fa377e1-a6c0-4f6a-8e98-ab3cc30fd0c3/category/global.all' #m78077439@gmail.com
-            #'https://feedly.com/i/collection/content/user/9e62dc2d-90e6-453b-88f4-47b630b9a4aa/category/global.all' #m08067064@gmail.com
+        ]:
+            driver.get(feed_url)
+            frame = WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.ID, "feedlyFrame"))
+            )
             
-        )
-        time.sleep(10)
-        counter = 0
-        new_last_height = driver.execute_script(
-            "return document.querySelector('#feedlyFrame').scrollHeight")
-        while counter < 30:
-            # Scroll down and wait for page load
-            scroll_down(driver, "//*[@id='feedlyFrame']")
-            # Check if we reached the bottom
-            new_height1 = driver.execute_script( 
-                "return document.querySelector('#feedlyFrame').scrollHeight")
-            if new_height1 == new_last_height:
-                break
-            new_last_height = new_height1
-            counter += 1
-            time.sleep(1.5)
-        logging.info(f"'{counter}' Feedly scrape loops\n")
-        
-        new_articles1 = driver.find_elements(By.CLASS_NAME, "entry.magazine")
-        for article in new_articles1:
-            try:
-                date_span1 = article.find_element(By.CSS_SELECTOR, "span[title*='Published']")
-                article_date1 = date_span1.get_attribute("title")
-                new_article_date1 = re.sub(r'\n', '', str(article_date1)).strip()
-                new_article_date1 = re.sub(r'.*Received: | GMT.*', '', new_article_date1).strip()
-                if new_article_date1[17:19] == '24':
-                    new_article_date1 = new_article_date1[:17] + '00' + new_article_date1[19:]
-                new_article_date1_conv = datetime.datetime.strptime(new_article_date1, "%a, %d %b %Y %H:%M:%S")
-                #if 1 == 1:
-                if start_range <= new_article_date1_conv <= new_today_str:
-                    title = article.find_element(By.CSS_SELECTOR, "a.EntryTitleLink").text
-                    link = article.find_element(By.CSS_SELECTOR, "a.EntryTitleLink").get_attribute("href")
-                    
-                    article = (title, link)
-                    if article not in new_articles:
-                        new_articles.append(article)
-            except Exception as e:
-                print('Error for article: ' + str(e))
-        
-        #print("Debugger!!!")
-    except Exception as e:
-        print('Error execution: ' + str(e))
-        pass
+            last_height = driver.execute_script("return document.querySelector('#feedlyFrame').scrollHeight")
+            
+            while scroll_attempts < max_scrolls and not found_old_article:
+                # Improved scrolling with explicit waits
+                driver.execute_script("""
+                    var frame = document.querySelector('#feedlyFrame');
+                    frame.scrollTo({
+                        top: frame.scrollHeight,
+                        behavior: 'smooth'
+                    });
+                """)
+                
+                # Wait for content to load
+                time.sleep(2)
+                
+                # Get current articles
+                articles = driver.find_elements(By.CLASS_NAME, "entry.magazine")
+                print(f"Found {len(articles)} articles on scroll {scroll_attempts + 1}")
+                
+                for article in articles:
+                    try:
+                        # Use WebDriverWait for reliable element access
+                        date_span = WebDriverWait(article, 5).until(
+                            EC.presence_of_element_located((By.CSS_SELECTOR, "span[title*='Published']"))
+                        )
+                        article_date = process_article_date(date_span.get_attribute("title"))
+                        
+                        if start_range <= article_date <= new_today_str:
+                            title = article.find_element(By.CSS_SELECTOR, "a.EntryTitleLink").text
+                            link = article.find_element(By.CSS_SELECTOR, "a.EntryTitleLink").get_attribute("href")
+                            if (title, link) not in new_articles:
+                                new_articles.add((title, link))
+                                print(f"Found new article: {title}")
+                        elif article_date < start_range:
+                            found_old_article = True
+                            print(f"Found article older than {start_range}")
+                            break
+                    except Exception as e:
+                        continue
 
-    return new_articles
+                # Check scroll progress
+                new_height = driver.execute_script("return document.querySelector('#feedlyFrame').scrollHeight")
+                if new_height == last_height:
+                    # Wait longer and check again
+                    time.sleep(3)
+                    new_height = driver.execute_script("return document.querySelector('#feedlyFrame').scrollHeight")
+                    if new_height == last_height:
+                        print("No new content after waiting, checking dates...")
+                        # Only break if we've found articles older than our target range
+                        if found_old_article:
+                            break
+                
+                last_height = new_height
+                scroll_attempts += 1
+                print(f"Completed scroll {scroll_attempts}/{max_scrolls}")
+
+            logging.info(f"Completed {scroll_attempts} scrolls, found {len(new_articles)} articles")
+            
+    except Exception as e:
+        logging.error(f"Scraping error: {e}")
+        print(f"Error during scraping: {e}")
+        
+    return list(new_articles)
+
+def get_article_content(url, timeout=10, max_retries=2):
+    """Optimized article content fetching"""
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9",
+    }
+    
+    session = requests.Session()  # Use session for connection pooling
+    
+    for attempt in range(max_retries):
+        try:
+            response = session.get(url, headers=headers, timeout=timeout)
+            if response.status_code == 200:
+                parser = HTMLParser(response.text)
+                
+                # Try all selectors at once
+                selectors = "article, .article-content, .post-content, main, .entry-content"
+                if content := parser.css_first(selectors):
+                    return ' '.join(content.text().split())[:2000]
+                return None
+        except Exception as e:
+            if attempt == max_retries - 1:
+                print(f"Failed to fetch {url}: {e}")
+            time.sleep(1)
+    return None
+
+
+def process_article_date(date_string):
+    """Process article date string"""
+    new_date = re.sub(r'\n', '', date_string).strip()
+    new_date = re.sub(r'.*Received: | GMT.*', '', new_date).strip()
+    if new_date[17:19] == '24':
+        new_date = new_date[:17] + '00' + new_date[19:]
+    return datetime.datetime.strptime(new_date, "%a, %d %b %Y %H:%M:%S")
 
 def process_articles_batch(unique_new_articles, batch_size=50):
-    """Process articles with GPT analysis"""
-    global titles_read, negative_titles_read, negative_keywords
-    
+    """Optimized batch processing with progress updates"""
     decoded_articles = []
-    titles = []
-    titles_neg = []
+    titles = set()
+    titles_neg = set()
     pg_links = []
     gpt_results = []
-    existing_titles_set = set(titles_read)
-    negative_titles_set = set(negative_titles_read)
-
-    print(f"Processing {len(unique_new_articles)} articles in batches of {batch_size}")
-
-    for i in range(0, len(unique_new_articles), batch_size):
-        batch = unique_new_articles[i:i + batch_size]
-
-        for article in batch:
-            title, url = str(article[0]), str(article[1])
-            
-            # Skip only if title exists in titles_to_check
-            if title in existing_titles_set or title in negative_titles_set:
-                continue
-
-            # Check negative keywords first for all articles
-            if (is_check_title_against_keywords(title, negative_keywords)):
-                titles_neg.append(title)
-                negative_titles_set.add(title)
-                continue
-
-            # Process Google News URLs
-            if 'news.google' in url:
-                try:
-                    decoded_url = decode_google_news_url(url, interval=0.1)
-                    if decoded_url.get("status"):
-                        final_url = decoded_url["decoded_url"]
-                        print("Decoded url: ", final_url)
-                        if (is_url_contains_keyword(final_url, negative_keywords)):
-                            titles_neg.append(title)
-                            negative_titles_set.add(title)
-                            continue
-                        # Add to positive results
-                        pg_links.append(final_url)
-                        titles.append(title)
-                        existing_titles_set.add(title)
-                        decoded_articles.append((title, final_url))
-                    else:
-                        if (is_url_contains_keyword(url, negative_keywords)):
-                            titles_neg.append(title)
-                            negative_titles_set.add(title)
-                            continue
-                        titles.append(title)
-                        pg_links.append(url)
-                        existing_titles_set.add(title)
-                        decoded_articles.append((title, url))
-                except Exception as e:
-                    print(f'Error decoding Google News URL: {str(e)}')
-                    if (is_url_contains_keyword(url, negative_keywords)):
-                        titles_neg.append(title)
-                        negative_titles_set.add(title)
-                        continue
-                    pg_links.append(url)
-                    titles.append(title)
-                    existing_titles_set.add(title)
-                    decoded_articles.append((title, url))
-            else:
-                # Process non-Google News URLs
-                if (is_url_contains_keyword(url, negative_keywords)):
-                    titles_neg.append(title)
-                    negative_titles_set.add(title)
-                    continue
-                pg_links.append(url)
-                titles.append(title)
-                existing_titles_set.add(title)
-                decoded_articles.append((title, url))
-
-    # Update global variables
-    titles_read = list(existing_titles_set)
-    negative_titles_read = list(negative_titles_set)
-
     
-    # Second pass: Process clean articles with GPT
-    gpt_batch_size = 2  # Process 2 articles at a time to avoid rate limits
-    for i in range(0, len(decoded_articles), gpt_batch_size):
-        batch = decoded_articles[i:i + gpt_batch_size]
-        if batch:
+    print(f"\nStarting concurrent article processing for {len(unique_new_articles)} articles...")
+    
+    # Process articles concurrently
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        future_to_article = {
+            executor.submit(process_single_article, article): article 
+            for article in unique_new_articles
+        }
+        
+        completed = 0
+        for future in as_completed(future_to_article):
+            completed += 1
             try:
-                prompt = create_gpt_prompt(batch)
-                client = OpenAI(api_key=OPEN_API_KEY)
-                response = client.chat.completions.create(
-                    model="gpt-3.5-turbo",  # Using GPT-3.5-turbo instead of GPT-4
-                    messages=[
-                        {"role": "system", "content": "You are a professional article analyzer. Format your response exactly as: URL#Title#Description#ReachOut#Reasons#Keywords#Location"},
-                        {"role": "user", "content": prompt}
-                    ],
-                    temperature=0.7,
-                    max_tokens=1000
-                )
-                
-                gpt_response = response.choices[0].message.content
-                parsed_results = parse_gpt_response(gpt_response)
-                if parsed_results:
-                    gpt_results.extend(parsed_results)
-                    print(f"Successfully analyzed {len(parsed_results)} articles with GPT")
-                
+                result = future.result()
+                if result:
+                    if result.get('type') == 'negative':
+                        titles_neg.add(result['title'])
+                        print(f"Article marked negative ({completed}/{len(unique_new_articles)})")
+                    else:
+                        decoded_articles.append(result)
+                        titles.add(result['title'])
+                        pg_links.append(result['url'])
+                        print(f"Article decoded successfully ({completed}/{len(unique_new_articles)})")
             except Exception as e:
-                print(f"Error in GPT processing: {e}")
-                # If GPT fails, create empty placeholder results
-                for title, url in batch:
-                    gpt_results.append({
-                        'URL': url,
-                        'Title': title,
-                        'Description': "",
-                        'Reach Out': "",
-                        'Reasons': "",
-                        'Keywords': "",
-                        'Location': "",
-                        'NOTES': ""
-                    })
-            
-            time.sleep(1)  # Rate limiting
+                print(f"Error processing article: {str(e)}")
+
+    print(f"\nStarting GPT processing for {len(decoded_articles)} articles...")
     
-            
+    # Process GPT in batches
+    if decoded_articles:
+        gpt_batch_size = 5
+        for i in range(0, len(decoded_articles), gpt_batch_size):
+            batch = decoded_articles[i:i + gpt_batch_size]
+            try:
+                print(f"\nProcessing GPT batch {i//gpt_batch_size + 1}/{(len(decoded_articles) + gpt_batch_size - 1)//gpt_batch_size}")
+                batch_results = process_gpt_batch(batch)
+                gpt_results.extend(batch_results)
+                print(f"Successfully processed batch with {len(batch_results)} results")
+            except Exception as e:
+                print(f"GPT batch processing error: {e}")
+
+    print(f"\nProcessing complete:")
+    print(f"- Decoded articles: {len(decoded_articles)}")
+    print(f"- GPT results: {len(gpt_results)}")
+    print(f"- Negative articles: {len(titles_neg)}")
+
     return {
         'decoded_articles': decoded_articles,
-        'titles': titles,
+        'titles': list(titles),
         'pg_links': pg_links,
-        'titles_neg': titles_neg,
+        'titles_neg': list(titles_neg),
         'gpt_results': gpt_results
     }
+
+def process_single_article(article):
+    """Process individual article with content fetching"""
+    title, url = str(article[0]), str(article[1])
+    
+    if title in titles_read or title in negative_titles_read:
+        return None
+        
+    if is_check_title_against_keywords(title, negative_keywords):
+        return {'type': 'negative', 'title': title}
+        
+    try:
+        # Fix URL handling
+        if 'news.google' in url:
+            decoded = decode_google_news_url(url)
+            final_url = decoded.get('decoded_url') if decoded.get('status') else url
+        else:
+            final_url = url
+        
+        print(f"Processing article: {final_url}")
+
+        content = get_article_content(final_url)
+        if content:
+            return {
+                'type': 'article',
+                'title': title,
+                'url': final_url,
+                'content': content
+            }
+    except Exception as e:
+        logging.error(f"Article processing error: {e}")
+        
+    return None
+
+def process_gpt_batch(batch):
+    """Process batch of articles with GPT-4 Turbo"""
+    try:
+        prompt = create_optimized_prompt(batch)
+        client = OpenAI(api_key=OPEN_API_KEY)
+        response = client.chat.completions.create(
+            model="gpt-4-1106-preview",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=1500,
+            temperature=0.7,
+            response_format={ "type": "text" }
+        )
+        
+        if response.choices:
+            result = parse_gpt_api_response_content(response.choices[0].message.content)
+            # Add error checking for parsed result
+            if result:
+                try:
+                    parsed_data = json.loads(result)
+                    return parsed_data if isinstance(parsed_data, list) else []
+                except json.JSONDecodeError:
+                    print(f"Failed to parse GPT response: {result}")
+                    return []
+        print("No response from GPT")
+        return []
+        
+    except Exception as e:
+        print(f"GPT API error: {str(e)}\nPrompt: {prompt[:200]}...")
+        return []
+    
+def create_optimized_prompt(batch):
+    """Create optimized GPT prompt"""
+    prompt = """Analyze these articles and provide structured summaries.
+    Format each response exactly as: URL#TITLE#DESCRIPTION#REACH_OUT#REASONS#KEYWORDS#LOCATION
+
+    Requirements:
+    - Each response must be on a new line
+    - Use exactly 6 '#' separators per line
+    - Do not use '#' within field contents
+    - Description: 100-200 word summary
+    - Reach Out: Key person/organization
+    - Reasons: Brief explanation
+    - Keywords: 20 terms with |
+    - Location: Specific place
+
+    Example format:
+    https://example.com#Article Title#Description text#Person Name#Reason text#keyword1|keyword2#City, State
+    """
+    
+    for article in batch:
+        prompt += f"\n\nArticle to analyze:\nURL: {article['url']}\nTitle: {article['title']}\nContent: {article['content'][:1000]}"
+    
+    return prompt
 
 def main(email, password):
     initialize_global_variables()
@@ -813,7 +864,8 @@ def main(email, password):
             print(f'Unique articles (not in titles_read or negative_titles): {len(unique_articles)}')
             
             results = process_articles_batch(unique_articles)
-
+            print(f"Processed {len(results['decoded_articles'])} articles")
+            logging.info(f"'{len(results['decoded_articles'])}' processed articles")
             # Write to CSV immediately after processing
             try:
                 articles_df = pd.DataFrame(results['decoded_articles'], columns=['Title', 'URL'])
@@ -830,7 +882,17 @@ def main(email, password):
                     append_to_excel(r'negative_titles.xlsx', df_titles_neg, 'Sheet1')
 
                 if results['gpt_results']:
-                    excel_data = pd.DataFrame(results['gpt_results'])
+                    # Map GPT results to Excel format
+                    excel_data = pd.DataFrame([{
+                        'URL': result['url'],
+                        'Title': result['title'],
+                        'Description': result['description'],
+                        'Reach Out': result['reach_out'],
+                        'Reasons': result['reasons'],
+                        'Keywords': result['keywords'],
+                        'Location': result['location'],
+                        'NOTES': ''
+                    } for result in results['gpt_results']])
                 else:
                     excel_data = pd.DataFrame({
                         "URL": [article[1] for article in results['decoded_articles']],
@@ -843,9 +905,11 @@ def main(email, password):
                         "NOTES": ["" for _ in results['decoded_articles']]
                     })
 
-                append_to_excel(r"Rory Testing Sheet 2024.xlsx", excel_data, 'Sheet1')
-                print(f"Successfully wrote {len(results['decoded_articles'])} articles to Excel")
-                logging.info(f"'{len(results['decoded_articles'])}' articles to Excel\n")
+                
+                if not excel_data.empty:
+                    append_to_excel(r"Rory Testing Sheet 2024.xlsx", excel_data, 'Sheet1')
+                    print(f"Successfully wrote {len(excel_data)} articles to Excel")
+                    logging.info(f"'{len(excel_data)}' articles to Excel\n")
                     
             except Exception as e:
                 print(f"Error writing to files: {str(e)}")

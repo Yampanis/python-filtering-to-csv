@@ -223,7 +223,7 @@ new_today_str = datetime.datetime.strptime(today_str, "%a, %d %b %Y %H:%M:%S")
 
 logging.info(f"'{new_today_str}' new_today_str")
 print(new_today_str)
-start_range = new_today_str - datetime.timedelta(hours=0.5)
+start_range = new_today_str - datetime.timedelta(hours=1)
 # Setup Selenium WebDriver
 chrome_options = Options()
 # chrome_options.add_argument("--start-maximized")

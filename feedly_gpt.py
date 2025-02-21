@@ -223,7 +223,7 @@ new_today_str = datetime.datetime.strptime(today_str, "%a, %d %b %Y %H:%M:%S")
 
 logging.info(f"'{new_today_str}' new_today_str")
 print(new_today_str)
-start_range = new_today_str - datetime.timedelta(hours=3)
+start_range = new_today_str - datetime.timedelta(hours=0.5)
 # Setup Selenium WebDriver
 chrome_options = Options()
 # chrome_options.add_argument("--start-maximized")
@@ -666,7 +666,7 @@ def process_article_date(date_string):
     return datetime.datetime.strptime(new_date, "%a, %d %b %Y %H:%M:%S")
 
 def process_articles_batch(unique_new_articles, batch_size=50):
-    """Optimized batch processing with progress updates"""
+    """Process articles and save results after each GPT batch"""
     decoded_articles = []
     titles = set()
     titles_neg = set()
@@ -675,33 +675,29 @@ def process_articles_batch(unique_new_articles, batch_size=50):
     
     print(f"\nStarting concurrent article processing for {len(unique_new_articles)} articles...")
     
-    # Process articles concurrently
+    # Process articles concurrently (content fetching)
     with ThreadPoolExecutor(max_workers=5) as executor:
         future_to_article = {
             executor.submit(process_single_article, article): article 
             for article in unique_new_articles
         }
         
-        completed = 0
         for future in as_completed(future_to_article):
-            completed += 1
             try:
                 result = future.result()
                 if result:
                     if result.get('type') == 'negative':
                         titles_neg.add(result['title'])
-                        print(f"Article marked negative ({completed}/{len(unique_new_articles)})")
                     else:
                         decoded_articles.append(result)
                         titles.add(result['title'])
                         pg_links.append(result['url'])
-                        print(f"Article decoded successfully ({completed}/{len(unique_new_articles)})")
             except Exception as e:
                 print(f"Error processing article: {str(e)}")
 
     print(f"\nStarting GPT processing for {len(decoded_articles)} articles...")
     
-    # Process GPT in batches
+    # Process GPT in batches and save results after each batch
     if decoded_articles:
         gpt_batch_size = 5
         for i in range(0, len(decoded_articles), gpt_batch_size):
@@ -709,8 +705,27 @@ def process_articles_batch(unique_new_articles, batch_size=50):
             try:
                 print(f"\nProcessing GPT batch {i//gpt_batch_size + 1}/{(len(decoded_articles) + gpt_batch_size - 1)//gpt_batch_size}")
                 batch_results = process_gpt_batch(batch)
-                gpt_results.extend(batch_results)
-                print(f"Successfully processed batch with {len(batch_results)} results")
+                
+                if batch_results:
+                    # Save this batch to Excel immediately
+                    excel_data = pd.DataFrame([{
+                        'URL': result['url'],
+                        'Title': result['title'],
+                        'Description': result['description'],
+                        'Reach Out': result['reach_out'],
+                        'Reasons': result['reasons'],
+                        'Keywords': result['keywords'],
+                        'Location': result['location'],
+                        'NOTES': ''
+                    } for result in batch_results])
+                    
+                    if not excel_data.empty:
+                        append_to_excel(r"Rory Testing Sheet 2024.xlsx", excel_data, 'Sheet1')
+                        print(f"Saved batch {i//gpt_batch_size + 1} with {len(batch_results)} results to Excel")
+                    
+                    # Add to overall results
+                    gpt_results.extend(batch_results)
+                
             except Exception as e:
                 print(f"GPT batch processing error: {e}")
 
@@ -881,35 +896,35 @@ def main(email, password):
                     df_titles_neg = pd.DataFrame({"Titles": results['titles_neg']})
                     append_to_excel(r'negative_titles.xlsx', df_titles_neg, 'Sheet1')
 
-                if results['gpt_results']:
-                    # Map GPT results to Excel format
-                    excel_data = pd.DataFrame([{
-                        'URL': result['url'],
-                        'Title': result['title'],
-                        'Description': result['description'],
-                        'Reach Out': result['reach_out'],
-                        'Reasons': result['reasons'],
-                        'Keywords': result['keywords'],
-                        'Location': result['location'],
-                        'NOTES': ''
-                    } for result in results['gpt_results']])
-                else:
-                    excel_data = pd.DataFrame({
-                        "URL": [article[1] for article in results['decoded_articles']],
-                        "Title": [article[0] for article in results['decoded_articles']],
-                        "Description": ["" for _ in results['decoded_articles']],
-                        "Reach Out": ["" for _ in results['decoded_articles']],
-                        "Reasons": ["" for _ in results['decoded_articles']],
-                        "Keywords": ["" for _ in results['decoded_articles']],
-                        "Location": ["" for _ in results['decoded_articles']],
-                        "NOTES": ["" for _ in results['decoded_articles']]
-                    })
+                # if results['gpt_results']:
+                #     # Map GPT results to Excel format
+                #     excel_data = pd.DataFrame([{
+                #         'URL': result['url'],
+                #         'Title': result['title'],
+                #         'Description': result['description'],
+                #         'Reach Out': result['reach_out'],
+                #         'Reasons': result['reasons'],
+                #         'Keywords': result['keywords'],
+                #         'Location': result['location'],
+                #         'NOTES': ''
+                #     } for result in results['gpt_results']])
+                # else:
+                #     excel_data = pd.DataFrame({
+                #         "URL": [article[1] for article in results['decoded_articles']],
+                #         "Title": [article[0] for article in results['decoded_articles']],
+                #         "Description": ["" for _ in results['decoded_articles']],
+                #         "Reach Out": ["" for _ in results['decoded_articles']],
+                #         "Reasons": ["" for _ in results['decoded_articles']],
+                #         "Keywords": ["" for _ in results['decoded_articles']],
+                #         "Location": ["" for _ in results['decoded_articles']],
+                #         "NOTES": ["" for _ in results['decoded_articles']]
+                #     })
 
                 
-                if not excel_data.empty:
-                    append_to_excel(r"Rory Testing Sheet 2024.xlsx", excel_data, 'Sheet1')
-                    print(f"Successfully wrote {len(excel_data)} articles to Excel")
-                    logging.info(f"'{len(excel_data)}' articles to Excel\n")
+                # if not excel_data.empty:
+                #     append_to_excel(r"Rory Testing Sheet 2024.xlsx", excel_data, 'Sheet1')
+                #     print(f"Successfully wrote {len(excel_data)} articles to Excel")
+                #     logging.info(f"'{len(excel_data)}' articles to Excel\n")
                     
             except Exception as e:
                 print(f"Error writing to files: {str(e)}")

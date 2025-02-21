@@ -21,6 +21,7 @@ from urllib.request import quote
 from urllib.parse import urlparse
 import pandas as pd
 import logging
+from openai import OpenAI
 
 load_dotenv()
 OPEN_API_KEY = os.getenv("OPEN_API_KEY")
@@ -234,6 +235,72 @@ service = Service(executable_path=chromedriver_path)
 # Initialize WebDriver with the service and options
 driver = webdriver.Chrome(service=service, options=chrome_options)
 
+def create_gpt_prompt(article_batch):
+    """Create structured prompt for GPT analysis"""
+    prompt = """Analyze each article and provide information in this exact format:
+    URL#Title#Description#ReachOut#Reasons#Keywords#Location
+    
+    For each article provide:
+    - Description: 100-200 word summary
+    - ReachOut: Key person or organization to contact
+    - Reasons: Why this is relevant
+    - Keywords: Up to 20 important terms (comma separated)
+    - Location: Geographic location mentioned
+    
+    Format each response on a new line with '#' separators.
+    """
+    
+    for title, url in article_batch:
+        prompt += f"\nArticle: {url}\nTitle: {title}\n"
+    
+    return prompt
+
+def call_gpt_api(prompt):
+    """Call GPT API with proper error handling"""
+    try:
+        client = OpenAI(api_key=OPEN_API_KEY)
+        response = client.chat.completions.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": "You are a professional article analyzer. Provide information in the exact format requested."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.7,
+            max_tokens=2000
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        print(f"GPT API call error: {e}")
+        return None
+
+def parse_gpt_response(response_text):
+    """Parse GPT response with better error handling"""
+    parsed_results = []
+    if not response_text:
+        return parsed_results
+        
+    try:
+        lines = response_text.strip().split('\n')
+        for line in lines:
+            if '#' in line:
+                parts = line.split('#')
+                if len(parts) == 7:  # Ensure we have all 7 expected parts
+                    parsed_results.append({
+                        'URL': parts[0],
+                        'Title': parts[1],
+                        'Description': parts[2],
+                        'Reach Out': parts[3],
+                        'Reasons': parts[4],
+                        'Keywords': parts[5],
+                        'Location': parts[6]
+                    })
+                else:
+                    print(f"Invalid format in line: {line}")
+    except Exception as e:
+        print(f"Error parsing GPT response: {e}")
+    
+    return parsed_results
+
 def append_to_excel(existing_file, new_data, sheet_name):
     """Append data to Excel with custom column widths"""
     try:
@@ -360,18 +427,18 @@ def is_url_contains_keyword(url, negative_keywords):
 
 
 def feedly_login(driver, email, password):
+    """Login to Feedly with proper window handling"""
     cookies_path = "cookies/feedly_cookies.pkl"
     driver.get("https://feedly.com/i/discover")
     driver.set_page_load_timeout(30)  
-    
-    time.sleep(3.5)
+    time.sleep(5)
 
     cookie_login_successful = False
     try: 
         if load_cookies(driver, cookies_path):
             driver.refresh()
             try:
-                WebDriverWait(driver, 5).until(
+                WebDriverWait(driver, 10).until(
                     EC.presence_of_element_located((By.ID, "feedlyFrame"))
                 )
                 cookie_login_successful = True
@@ -394,15 +461,23 @@ def feedly_login(driver, email, password):
                 EC.element_to_be_clickable((By.XPATH, "//a[contains(.,'with Google')]")
             ))
             google_login.click()
+            time.sleep(2)
 
-            email_input = WebDriverWait(driver, 10).until(
+            # Handle Google login popup
+            windows = driver.window_handles
+            if len(windows) > 1:
+                driver.switch_to.window(windows[-1])
+
+            # Enter email
+            email_input = WebDriverWait(driver, 15).until(
                 EC.presence_of_element_located((By.XPATH, "//input[@type='email']"))
             )
             email_input.send_keys(email)
             email_input.send_keys(Keys.ENTER)
             time.sleep(10)
 
-            password_input = WebDriverWait(driver, 10).until(
+            # Enter password
+            password_input = WebDriverWait(driver, 15).until(
                 EC.presence_of_element_located((By.XPATH, "//input[@type='password']"))
             )
             password_input.send_keys(password)
@@ -464,23 +539,24 @@ def scroll_down(driver, element_selector):
 def scrape_today_articles(driver):
     new_articles = []
     batch_size = 500
-    # last_height = driver.execute_script(
-    #     "return document.querySelector('#feedlyFrame').scrollHeight")
-    # '''while True:
-    #     # Scroll down and wait for page load
-    #     scroll_down(driver, "//*[@id='feedlyFrame']")
+    last_height = driver.execute_script(
+        "return document.querySelector('#feedlyFrame').scrollHeight")
+    '''while True:
+        # Scroll down and wait for page load
+        scroll_down(driver, "//*[@id='feedlyFrame']")
 
-    #     # Check if we reached the bottom
-    #     new_height = driver.execute_script(
-    #         "return document.querySelector('#feedlyFrame').scrollHeight")
-    #     if new_height == last_height:
-    #         break
-    #     last_height = new_height
-    #     time.sleep(1.5)'''
+        # Check if we reached the bottom
+        new_height = driver.execute_script(
+            "return document.querySelector('#feedlyFrame').scrollHeight")
+        if new_height == last_height:
+            break
+        last_height = new_height
+        time.sleep(1.5)'''
 
     try:
         articles = driver.find_elements(By.CLASS_NAME, "entry.magazine")
         time.sleep(3)
+        
         for article in articles:
             try:
                 date_span = article.find_element(By.CSS_SELECTOR, "span[title*='Published']")
@@ -557,14 +633,14 @@ def scrape_today_articles(driver):
     return new_articles
 
 def process_articles_batch(unique_new_articles, batch_size=50):
-    """Process articles with consistent negative keyword checking"""
-    global titles_read
-    global negative_titles_read
-    global negative_keywords
+    """Process articles with GPT analysis"""
+    global titles_read, negative_titles_read, negative_keywords
+    
     decoded_articles = []
     titles = []
     titles_neg = []
     pg_links = []
+    gpt_results = []
     existing_titles_set = set(titles_read)
     negative_titles_set = set(negative_titles_read)
 
@@ -635,12 +711,56 @@ def process_articles_batch(unique_new_articles, batch_size=50):
     # Update global variables
     titles_read = list(existing_titles_set)
     negative_titles_read = list(negative_titles_set)
+
+    
+    # Second pass: Process clean articles with GPT
+    gpt_batch_size = 2  # Process 2 articles at a time to avoid rate limits
+    for i in range(0, len(decoded_articles), gpt_batch_size):
+        batch = decoded_articles[i:i + gpt_batch_size]
+        if batch:
+            try:
+                prompt = create_gpt_prompt(batch)
+                client = OpenAI(api_key=OPEN_API_KEY)
+                response = client.chat.completions.create(
+                    model="gpt-3.5-turbo",  # Using GPT-3.5-turbo instead of GPT-4
+                    messages=[
+                        {"role": "system", "content": "You are a professional article analyzer. Format your response exactly as: URL#Title#Description#ReachOut#Reasons#Keywords#Location"},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0.7,
+                    max_tokens=1000
+                )
+                
+                gpt_response = response.choices[0].message.content
+                parsed_results = parse_gpt_response(gpt_response)
+                if parsed_results:
+                    gpt_results.extend(parsed_results)
+                    print(f"Successfully analyzed {len(parsed_results)} articles with GPT")
+                
+            except Exception as e:
+                print(f"Error in GPT processing: {e}")
+                # If GPT fails, create empty placeholder results
+                for title, url in batch:
+                    gpt_results.append({
+                        'URL': url,
+                        'Title': title,
+                        'Description': "",
+                        'Reach Out': "",
+                        'Reasons': "",
+                        'Keywords': "",
+                        'Location': "",
+                        'NOTES': ""
+                    })
+            
+            time.sleep(1)  # Rate limiting
+    
             
     return {
         'decoded_articles': decoded_articles,
         'titles': titles,
         'pg_links': pg_links,
-        'titles_neg': titles_neg
+        'titles_neg': titles_neg,
+        'gpt_results': gpt_results
     }
 
 def main(email, password):
@@ -709,10 +829,19 @@ def main(email, password):
                     df_titles_neg = pd.DataFrame({"Titles": results['titles_neg']})
                     append_to_excel(r'negative_titles.xlsx', df_titles_neg, 'Sheet1')
 
-                excel_data = pd.DataFrame({
-                    "URL": [article[1] for article in results['decoded_articles']],
-                    "Title": [article[0] for article in results['decoded_articles']]
-                })
+                if results['gpt_results']:
+                    excel_data = pd.DataFrame(results['gpt_results'])
+                else:
+                    excel_data = pd.DataFrame({
+                        "URL": [article[1] for article in results['decoded_articles']],
+                        "Title": [article[0] for article in results['decoded_articles']],
+                        "Description": ["" for _ in results['decoded_articles']],
+                        "Reach Out": ["" for _ in results['decoded_articles']],
+                        "Reasons": ["" for _ in results['decoded_articles']],
+                        "Keywords": ["" for _ in results['decoded_articles']],
+                        "Location": ["" for _ in results['decoded_articles']],
+                        "NOTES": ["" for _ in results['decoded_articles']]
+                    })
 
                 append_to_excel(r"Rory Testing Sheet 2024.xlsx", excel_data, 'Sheet1')
                 print(f"Successfully wrote {len(results['decoded_articles'])} articles to Excel")
